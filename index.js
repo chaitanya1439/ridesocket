@@ -241,9 +241,19 @@ wss.on('connection', (ws, request, decodedToken) => {
                         if (data.location) {
                             client.lastLocation = data.location;
                         }
-                        // Route location to rider if active trip
-                        if (data.riderId) {
-                            const targetRider = riders.get(data.riderId);
+                        // Route live tracking to rider if driver is currently in an active trip
+                        // Lookup the paired rider from server memory instead of trusting client payload
+                        let targetRiderId = data.riderId;
+                        if (!targetRiderId) {
+                            for (const [riderId, trip] of activeTrips.entries()) {
+                                if (trip.driverId === client.id) {
+                                    targetRiderId = riderId;
+                                    break;
+                                }
+                            }
+                        }
+                        if (targetRiderId) {
+                            const targetRider = riders.get(targetRiderId);
                             if (targetRider && targetRider.ws.readyState === WebSocket.OPEN) {
                                 targetRider.ws.send(JSON.stringify({
                                     type: 'driver_location',
@@ -274,15 +284,19 @@ wss.on('connection', (ws, request, decodedToken) => {
                         }
                     }
                     break;
-                // 2. Direct Messaging (In-App Chat between Rider and Driver)
+                case 'CHAT_MESSAGE':
                 case 'chat_message':
-                    // { type: 'chat_message', toId: '...', text: '...' }
-                    if (client) {
-                        const recipient = client.role === 'rider' ? drivers.get(data.toId) : riders.get(data.toId);
+                    const targetId = data.to || data.toId;
+                    const textMsg = data.message || data.text;
+                    if (client && targetId) {
+                        const recipient = client.role === 'rider' ? drivers.get(targetId) : riders.get(targetId);
                         if (recipient && recipient.ws.readyState === WebSocket.OPEN) {
                             recipient.ws.send(JSON.stringify({
-                                type: 'chat_message',
-                                payload: { fromId: client.id, text: data.text, timestamp: new Date().toISOString() }
+                                type: 'CHAT_MESSAGE',
+                                from: client.id,
+                                message: textMsg,
+                                timestamp: new Date().toISOString(),
+                                payload: { fromId: client.id, text: textMsg, timestamp: new Date().toISOString() }
                             }));
                         }
                     }
@@ -315,6 +329,23 @@ wss.on('connection', (ws, request, decodedToken) => {
 app.get('/', (req, res) => {
     res.send('Realtime WebSocket Server is running');
 });
+// 6. Idle Rider Roaming Cars Broadcast (UX Efficiency)
+// When a Rider opens the app, seeing little car icons roaming around increases conversion rate.
+// Instead of HTTP polling, we broadcast available drivers every 5 seconds to idle riders.
+const broadcastNearbyDrivers = setInterval(() => {
+    const availableDrivers = Array.from(drivers.entries())
+        .filter(([_, data]) => data.status === 'available' && data.lastLocation)
+        .map(([id, data]) => ({ id, ...data.lastLocation }));
+    if (availableDrivers.length === 0)
+        return;
+    const payload = JSON.stringify({ type: 'nearby_drivers', payload: availableDrivers });
+    riders.forEach((data, riderId) => {
+        // Only send to idle riders (not currently in an active trip)
+        if (!activeTrips.has(riderId) && data.ws.readyState === WebSocket.OPEN) {
+            data.ws.send(payload);
+        }
+    });
+}, 5000);
 const PORT = process.env.PORT || 8080;
 server.listen(PORT, () => {
     console.log(`Realtime Server listening on port ${PORT}`);
@@ -327,6 +358,7 @@ const gracefulShutdown = () => {
     console.log('Server shutting down, disconnecting clients gracefully...');
     clearInterval(interval);
     clearInterval(heatmapInterval);
+    clearInterval(broadcastNearbyDrivers);
     wss.clients.forEach((ws) => {
         ws.close(1001, 'Server shutting down');
     });

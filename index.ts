@@ -331,15 +331,19 @@ wss.on('connection', (ws: WebSocket, request: any, decodedToken: any) => {
           }
           break;
 
-        // 2. Direct Messaging (In-App Chat between Rider and Driver)
+        case 'CHAT_MESSAGE':
         case 'chat_message':
-          // { type: 'chat_message', toId: '...', text: '...' }
-          if (client) {
-            const recipient = client.role === 'rider' ? drivers.get(data.toId) : riders.get(data.toId);
+          const targetId = data.to || data.toId;
+          const textMsg = data.message || data.text;
+          if (client && targetId) {
+            const recipient = client.role === 'rider' ? drivers.get(targetId) : riders.get(targetId);
             if (recipient && recipient.ws.readyState === WebSocket.OPEN) {
               recipient.ws.send(JSON.stringify({
-                type: 'chat_message',
-                payload: { fromId: client.id, text: data.text, timestamp: new Date().toISOString() }
+                type: 'CHAT_MESSAGE',
+                from: client.id,
+                message: textMsg,
+                timestamp: new Date().toISOString(),
+                payload: { fromId: client.id, text: textMsg, timestamp: new Date().toISOString() }
               }));
             }
           }
