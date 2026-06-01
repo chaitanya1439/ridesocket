@@ -349,6 +349,19 @@ wss.on('connection', (ws: WebSocket, request: any, decodedToken: any) => {
           }
           break;
 
+        case 'get_demand_heatmap':
+          if (client && client.role === 'driver') {
+            const hotspots = [
+              { lat: 17.4401, lng: 78.3489, intensity: 0.9, surge: 1.5 }, // Example: HITEC City
+              { lat: 17.3850, lng: 78.4867, intensity: 0.6, surge: 1.2 }
+            ];
+            ws.send(JSON.stringify({
+              type: 'demand_heatmap',
+              payload: hotspots
+            }));
+          }
+          break;
+
         default:
           console.log('Unknown message type:', data.type);
       }
