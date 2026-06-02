@@ -35,6 +35,7 @@ const drivers = new Map();
 // We maintain active trips in memory so when a mobile client drops and reconnects, 
 // they instantly get their latest state without having to poll a database.
 const activeTrips = new Map(); // Key: riderId
+const MAX_DRIVER_MATCH_DISTANCE_KM = Number(process.env.MAX_DRIVER_MATCH_DISTANCE_KM || 15);
 // 1. Heartbeat Mechanism (Efficiency & Memory Management)
 // Automatically prune silently dropped mobile connections AND idle backgrounded riders
 const IDLE_TIMEOUT_MS = 15 * 60 * 1000; // 15 minutes
@@ -191,9 +192,19 @@ wss.on('connection', (ws, request, decodedToken) => {
                     }
                     break;
                 case 'ride_request':
-                    console.log(`Ride request from rider ${client?.id}:`, data.payload);
-                    const pickupLoc = data.payload.pickupLocation; // expected { lat, lng }
-                    // Geospatial Filtering: Only broadcast to 'available' drivers WITHIN 5km
+                    const ridePayload = data.payload || {
+                        pickupLocation: data.pickupLocation,
+                        dropLocation: data.dropLocation,
+                        destinationLocation: data.destinationLocation,
+                        fare: data.fare,
+                        vehicle: data.vehicle,
+                        vehicleType: data.vehicleType,
+                        distance: data.distance,
+                        riderName: data.riderName
+                    };
+                    console.log(`Ride request from rider ${client?.id}:`, ridePayload);
+                    const pickupLoc = ridePayload.pickupLocation; // expected { lat, lng }
+                    // Geospatial Filtering: Only broadcast to available drivers within the matching radius.
                     let matchedCount = 0;
                     drivers.forEach((driver) => {
                         if (driver.status === 'available' && driver.ws.readyState === WebSocket.OPEN) {
@@ -201,19 +212,19 @@ wss.on('connection', (ws, request, decodedToken) => {
                             let isNearby = true;
                             if (pickupLoc && driver.lastLocation) {
                                 const distance = getDistanceInKm(pickupLoc.lat, pickupLoc.lng, driver.lastLocation.lat, driver.lastLocation.lng);
-                                if (distance > 5.0)
-                                    isNearby = false; // Filter out drivers > 5km away
+                                if (distance > MAX_DRIVER_MATCH_DISTANCE_KM)
+                                    isNearby = false;
                             }
                             if (isNearby) {
                                 matchedCount++;
                                 driver.ws.send(JSON.stringify({
                                     type: 'new_ride_request',
-                                    payload: { riderId: client?.id, ...data.payload }
+                                    payload: { riderId: client?.id, ...ridePayload }
                                 }));
                             }
                         }
                     });
-                    console.log(`Broadcasted ride request to ${matchedCount} nearby drivers`);
+                    console.log(`Broadcasted ride request to ${matchedCount} nearby drivers within ${MAX_DRIVER_MATCH_DISTANCE_KM}km`);
                     break;
                 case 'ride_accept':
                     if (client && client.role === 'driver') {
