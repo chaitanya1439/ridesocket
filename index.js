@@ -146,12 +146,12 @@ wss.on('connection', (ws, request, decodedToken) => {
                     const newClient = {
                         ws,
                         role: data.role,
-                        id: userId || data.id, // Prefer secure token ID
+                        id: data.id || userId,
                         isAlive: true,
                         lastActivity: Date.now()
                     };
                     if (data.role === 'driver') {
-                        newClient.status = 'available';
+                        newClient.status = 'offline';
                     }
                     ws.clientInfo = newClient;
                     if (data.role === 'rider') {
@@ -184,9 +184,9 @@ wss.on('connection', (ws, request, decodedToken) => {
                     }
                     break;
                 case 'driver_status':
-                    // { type: 'driver_status', status: 'available' | 'busy' }
+                    // { type: 'driver_status', status: 'available' | 'busy' | 'offline' }
                     if (client && client.role === 'driver') {
-                        client.status = data.status;
+                        client.status = data.status === 'available' ? 'available' : data.status === 'busy' ? 'busy' : 'offline';
                         console.log(`Driver ${client.id} is now ${data.status}`);
                     }
                     break;

@@ -26,7 +26,7 @@ interface ClientInfo {
   role: 'rider' | 'driver';
   id: string;
   isAlive: boolean; // For heartbeat
-  status?: 'available' | 'busy'; // Driver specific
+  status?: 'available' | 'busy' | 'offline'; // Driver specific
   lastLocation?: { lat: number, lng: number }; // For proximity dispatch
   lastActivity: number; // For pruning idle connections
 }
@@ -176,12 +176,12 @@ wss.on('connection', (ws: WebSocket, request: any, decodedToken: any) => {
           const newClient: ClientInfo = {
             ws,
             role: data.role,
-            id: userId || data.id, // Prefer secure token ID
+            id: data.id || userId,
             isAlive: true,
             lastActivity: Date.now()
           };
           if (data.role === 'driver') {
-            newClient.status = 'available';
+            newClient.status = 'offline';
           }
           (ws as any).clientInfo = newClient;
           
@@ -216,9 +216,9 @@ wss.on('connection', (ws: WebSocket, request: any, decodedToken: any) => {
           break;
 
         case 'driver_status':
-          // { type: 'driver_status', status: 'available' | 'busy' }
+          // { type: 'driver_status', status: 'available' | 'busy' | 'offline' }
           if (client && client.role === 'driver') {
-            client.status = data.status;
+            client.status = data.status === 'available' ? 'available' : data.status === 'busy' ? 'busy' : 'offline';
             console.log(`Driver ${client.id} is now ${data.status}`);
           }
           break;
