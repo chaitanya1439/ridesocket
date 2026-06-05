@@ -137,6 +137,22 @@ export interface GetDemandHeatmapMessage {
   type: 'get_demand_heatmap';
 }
 
+/**
+ * Client sends its Expo Push Token after acquiring notification permissions.
+ * The server stores it in the push token registry for future push dispatches.
+ */
+export interface RegisterPushTokenMessage {
+  type: 'register_push_token';
+  pushToken: string;
+}
+
+/**
+ * Client requests its push token be removed (e.g., on logout).
+ */
+export interface UnregisterPushTokenMessage {
+  type: 'unregister_push_token';
+}
+
 export type InboundMessage =
   | AuthMessage
   | DriverStatusMessage
@@ -145,7 +161,9 @@ export type InboundMessage =
   | LocationUpdateMessage
   | TripStatusUpdateMessage
   | ChatMessage
-  | GetDemandHeatmapMessage;
+  | GetDemandHeatmapMessage
+  | RegisterPushTokenMessage
+  | UnregisterPushTokenMessage;
 
 // ─── WebSocket message payloads (server → client) ────────────────────────────
 
@@ -198,6 +216,11 @@ export interface OutboundChatMessage {
   payload: { fromId: string; text: string; timestamp: string };
 }
 
+export interface PushTokenAckMessage {
+  type: 'push_token_registered';
+  success: boolean;
+}
+
 export type OutboundMessage =
   | AuthSuccessMessage
   | SyncStateMessage
@@ -207,4 +230,5 @@ export type OutboundMessage =
   | TripStatusChangedMessage
   | DemandHeatmapMessage
   | NearbyDriversMessage
-  | OutboundChatMessage;
+  | OutboundChatMessage
+  | PushTokenAckMessage;

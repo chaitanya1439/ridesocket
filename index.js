@@ -3,6 +3,7 @@ import { createServer } from 'http';
 import { WebSocketServer, WebSocket } from 'ws';
 import cors from 'cors';
 import jwt from 'jsonwebtoken';
+import { registerPushToken, unregisterPushToken, sendPushNotification, notifyDriverOfRideRequest, notifyRiderOfAcceptance, notifyTripStatusChange, getPushToken, } from './pushService.js';
 // ─── JWT Secret ───────────────────────────────────────────────────────────────
 const JWT_SECRET = process.env.JWT_SECRET ?? '60651d89b02641afeea358be4762f0b047ebae446572e906180e6bd1d4ba6ff05bd4341226a414f5f0db15ea6efd54eb98b7e719c5dc8e0f6370d326cbe79b39';
 // ─── Fixed Tokens (.env lo define chesukoni ikkade generate avutayi) ──────────
@@ -276,6 +277,29 @@ wss.on('connection', (ws, _request, decodedToken) => {
                     }));
                 });
                 console.log(`Broadcasted ride request to ${matchedCount} nearby drivers within ${MAX_DRIVER_MATCH_DISTANCE_KM} km`);
+                // ── Push Notification Fallback ──────────────────────────────────────
+                // Also send push notifications to matched drivers who have registered
+                // push tokens. This ensures drivers receive the request even if the
+                // app is backgrounded or the WebSocket connection is temporarily lost.
+                drivers.forEach((driver) => {
+                    if (driver.status !== 'available')
+                        return;
+                    if (pickupLoc && driver.lastLocation) {
+                        const dist = getDistanceInKm(pickupLoc.lat, pickupLoc.lng, driver.lastLocation.lat, driver.lastLocation.lng);
+                        if (dist > MAX_DRIVER_MATCH_DISTANCE_KM)
+                            return;
+                    }
+                    notifyDriverOfRideRequest(driver.id, {
+                        riderId: client.id,
+                        riderName: ridePayload.riderName,
+                        pickupAddress: pickupLoc ? `${pickupLoc.lat.toFixed(4)}, ${pickupLoc.lng.toFixed(4)}` : undefined,
+                        fare: ridePayload.fare,
+                        distance: ridePayload.distance ? parseFloat(String(ridePayload.distance)) : undefined,
+                        vehicleType: ridePayload.vehicleType ?? ridePayload.vehicle,
+                        pickupLat: pickupLoc?.lat,
+                        pickupLng: pickupLoc?.lng,
+                    }).catch((err) => console.error(`[Push] Error notifying driver ${driver.id}:`, err));
+                });
                 break;
             }
             // ── Ride accept ────────────────────────────────────────────────────────
@@ -294,6 +318,10 @@ wss.on('connection', (ws, _request, decodedToken) => {
                 if (riderToNotify?.ws.readyState === WebSocket.OPEN) {
                     riderToNotify.ws.send(JSON.stringify({ type: 'ride_accepted', payload: tripRecord }));
                 }
+                // Push notification to rider: "Your ride has been accepted!"
+                notifyRiderOfAcceptance(data.riderId, {
+                    driverId: client.id,
+                }).catch((err) => console.error(`[Push] Error notifying rider ${data.riderId}:`, err));
                 break;
             }
             // ── Location update ────────────────────────────────────────────────────
@@ -343,6 +371,20 @@ wss.on('connection', (ws, _request, decodedToken) => {
                     client.status = 'available';
                     activeTrips.delete(data.riderId);
                 }
+                // Push notification to rider about trip status changes
+                const statusMessages = {
+                    arrived: 'Your driver has arrived at the pickup point!',
+                    in_progress: 'Your ride has started. Enjoy the journey!',
+                    completed: 'Ride completed! Thank you for riding with us.',
+                    cancelled: 'Your ride has been cancelled.',
+                };
+                const msg = statusMessages[data.status];
+                if (msg) {
+                    notifyTripStatusChange(data.riderId, {
+                        status: data.status,
+                        message: msg,
+                    }).catch((err) => console.error(`[Push] Error notifying trip status:`, err));
+                }
                 break;
             }
             // ── Chat message ───────────────────────────────────────────────────────
@@ -374,6 +416,21 @@ wss.on('connection', (ws, _request, decodedToken) => {
                 }
                 break;
             }
+            // ── Push Token Registration ────────────────────────────────────────────
+            case 'register_push_token': {
+                if (!client)
+                    break;
+                const success = registerPushToken(client.id, data.pushToken);
+                ws.send(JSON.stringify({ type: 'push_token_registered', success }));
+                break;
+            }
+            // ── Push Token Unregistration ──────────────────────────────────────────
+            case 'unregister_push_token': {
+                if (!client)
+                    break;
+                unregisterPushToken(client.id);
+                break;
+            }
             default: {
                 // Runtime safety net for messages not covered by InboundMessage
                 const unknownType = data.type;
@@ -400,6 +457,160 @@ wss.on('connection', (ws, _request, decodedToken) => {
 // ─── HTTP Routes ──────────────────────────────────────────────────────────────
 app.get('/', (_req, res) => {
     res.send('Realtime WebSocket Server is running');
+});
+// ─── REST: Push-Triggered Ride Request ────────────────────────────────────────
+/**
+ * POST /api/request-ride
+ *
+ * The ride-booker calls this endpoint to securely trigger a Push Notification
+ * to nearby drivers. This is the asynchronous complement to the WebSocket
+ * ride_request message — useful when the rider wants to ensure the driver
+ * gets notified even if their app is backgrounded.
+ *
+ * Body: {
+ *   riderId: string,
+ *   pickupLocation: { lat: number, lng: number },
+ *   dropLocation?: { lat: number, lng: number },
+ *   fare?: number,
+ *   vehicleType?: string,
+ *   riderName?: string,
+ *   distance?: number,
+ *   pickupAddress?: string,
+ *   dropAddress?: string
+ * }
+ *
+ * Auth: Bearer token in Authorization header
+ */
+app.post('/api/request-ride', (req, res) => {
+    // Authenticate the request
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith('Bearer ')) {
+        res.status(401).json({ error: 'Authorization header required' });
+        return;
+    }
+    let decoded;
+    try {
+        decoded = jwt.verify(authHeader.slice(7), JWT_SECRET);
+    }
+    catch {
+        res.status(401).json({ error: 'Invalid or expired token' });
+        return;
+    }
+    const body = req.body;
+    const riderId = body.riderId ?? decoded.id ?? decoded.userId;
+    if (!riderId) {
+        res.status(400).json({ error: 'riderId is required' });
+        return;
+    }
+    const pickupLoc = body.pickupLocation;
+    // Find nearby available drivers and send push notifications
+    let notifiedCount = 0;
+    const notificationPromises = [];
+    drivers.forEach((driver) => {
+        if (driver.status !== 'available')
+            return;
+        // Geospatial filtering
+        if (pickupLoc && driver.lastLocation) {
+            const dist = getDistanceInKm(pickupLoc.lat, pickupLoc.lng, driver.lastLocation.lat, driver.lastLocation.lng);
+            if (dist > MAX_DRIVER_MATCH_DISTANCE_KM)
+                return;
+        }
+        notifiedCount++;
+        // Send push notification to this driver
+        const pushPromise = notifyDriverOfRideRequest(driver.id, {
+            riderId,
+            riderName: body.riderName,
+            pickupAddress: body.pickupAddress ?? (pickupLoc ? `${pickupLoc.lat.toFixed(4)}, ${pickupLoc.lng.toFixed(4)}` : undefined),
+            dropAddress: body.dropAddress,
+            fare: body.fare,
+            distance: body.distance,
+            vehicleType: body.vehicleType,
+            pickupLat: pickupLoc?.lat,
+            pickupLng: pickupLoc?.lng,
+            dropLat: body.dropLocation?.lat,
+            dropLng: body.dropLocation?.lng,
+        });
+        notificationPromises.push(pushPromise);
+        // Also send via WebSocket if they're connected
+        if (driver.ws.readyState === WebSocket.OPEN) {
+            driver.ws.send(JSON.stringify({
+                type: 'new_ride_request',
+                payload: {
+                    riderId,
+                    pickupLocation: body.pickupLocation,
+                    dropLocation: body.dropLocation,
+                    fare: body.fare,
+                    vehicleType: body.vehicleType,
+                    riderName: body.riderName,
+                    distance: body.distance,
+                },
+            }));
+        }
+    });
+    // Wait for all notifications to be sent before responding
+    Promise.allSettled(notificationPromises)
+        .then(() => {
+        res.json({
+            success: true,
+            driversNotified: notifiedCount,
+            message: `Ride request sent to ${notifiedCount} nearby driver(s)`,
+        });
+    })
+        .catch(() => {
+        res.status(500).json({ error: 'Failed to send some notifications' });
+    });
+});
+// ─── REST: Register Push Token ────────────────────────────────────────────────
+/**
+ * POST /api/register-push-token
+ *
+ * Alternative to the WebSocket message for registering push tokens.
+ * Useful if the app needs to register before establishing a WebSocket connection.
+ *
+ * Body: { userId: string, pushToken: string }
+ * Auth: Bearer token in Authorization header
+ */
+app.post('/api/register-push-token', (req, res) => {
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith('Bearer ')) {
+        res.status(401).json({ error: 'Authorization header required' });
+        return;
+    }
+    try {
+        jwt.verify(authHeader.slice(7), JWT_SECRET);
+    }
+    catch {
+        res.status(401).json({ error: 'Invalid or expired token' });
+        return;
+    }
+    const { userId, pushToken } = req.body;
+    if (!userId || !pushToken) {
+        res.status(400).json({ error: 'userId and pushToken are required' });
+        return;
+    }
+    const success = registerPushToken(userId, pushToken);
+    res.json({ success, message: success ? 'Push token registered' : 'Invalid push token format' });
+});
+// ─── REST: Send Test Notification ─────────────────────────────────────────────
+/**
+ * POST /api/test-notification
+ * Dev-only endpoint to verify push notification setup.
+ *
+ * Body: { userId: string, title?: string, body?: string }
+ */
+app.post('/api/test-notification', async (req, res) => {
+    const { userId, title, body: bodyText } = req.body;
+    if (!userId) {
+        res.status(400).json({ error: 'userId is required' });
+        return;
+    }
+    const token = getPushToken(userId);
+    if (!token) {
+        res.status(404).json({ error: `No push token registered for ${userId}` });
+        return;
+    }
+    const ticket = await sendPushNotification(userId, title ?? '🔔 Test Notification', bodyText ?? 'Push notifications are working!', { type: 'test' });
+    res.json({ success: !!ticket, ticket });
 });
 /**
  * POST /auth/login

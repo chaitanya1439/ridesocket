@@ -106,7 +106,21 @@ export interface ChatMessage {
 export interface GetDemandHeatmapMessage {
     type: 'get_demand_heatmap';
 }
-export type InboundMessage = AuthMessage | DriverStatusMessage | RideRequestMessage | RideAcceptMessage | LocationUpdateMessage | TripStatusUpdateMessage | ChatMessage | GetDemandHeatmapMessage;
+/**
+ * Client sends its Expo Push Token after acquiring notification permissions.
+ * The server stores it in the push token registry for future push dispatches.
+ */
+export interface RegisterPushTokenMessage {
+    type: 'register_push_token';
+    pushToken: string;
+}
+/**
+ * Client requests its push token be removed (e.g., on logout).
+ */
+export interface UnregisterPushTokenMessage {
+    type: 'unregister_push_token';
+}
+export type InboundMessage = AuthMessage | DriverStatusMessage | RideRequestMessage | RideAcceptMessage | LocationUpdateMessage | TripStatusUpdateMessage | ChatMessage | GetDemandHeatmapMessage | RegisterPushTokenMessage | UnregisterPushTokenMessage;
 export interface AuthSuccessMessage {
     type: 'auth_success';
     id: string;
@@ -161,5 +175,9 @@ export interface OutboundChatMessage {
         timestamp: string;
     };
 }
-export type OutboundMessage = AuthSuccessMessage | SyncStateMessage | NewRideRequestMessage | RideAcceptedMessage | DriverLocationMessage | TripStatusChangedMessage | DemandHeatmapMessage | NearbyDriversMessage | OutboundChatMessage;
+export interface PushTokenAckMessage {
+    type: 'push_token_registered';
+    success: boolean;
+}
+export type OutboundMessage = AuthSuccessMessage | SyncStateMessage | NewRideRequestMessage | RideAcceptedMessage | DriverLocationMessage | TripStatusChangedMessage | DemandHeatmapMessage | NearbyDriversMessage | OutboundChatMessage | PushTokenAckMessage;
 //# sourceMappingURL=types.d.ts.map
