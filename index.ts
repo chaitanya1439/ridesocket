@@ -133,9 +133,10 @@ const heartbeatInterval = setInterval(() => {
 
     // 1. Silent-drop detection via ping/pong
     if (!client.isAlive) {
-      console.log(`[Heartbeat] Terminating inactive ${client.role} ${client.id}`);
-      if (client.role === 'rider') riders.delete(client.id);
-      else drivers.delete(client.id);
+      console.log(`[Heartbeat] Terminating inactive WS for ${client.role} ${client.id}`);
+      if (client.role === 'rider') {
+        riders.delete(client.id);
+      }
       ws.terminate();
       return;
     }
@@ -159,6 +160,15 @@ const heartbeatInterval = setInterval(() => {
       pendingRequests.delete(riderId);
     }
   }
+
+  // 3. Garbage collect disconnected drivers who haven't been active for 12 hours
+  const TWELVE_HOURS_MS = 12 * 60 * 60 * 1000;
+  drivers.forEach((driver, id) => {
+    if (driver.ws.readyState === WebSocket.CLOSED && (now - driver.lastActivity > TWELVE_HOURS_MS)) {
+      console.log(`[Heartbeat] Pruning stale offline driver ${id}`);
+      drivers.delete(id);
+    }
+  });
 }, 30_000);
 
 // ─── Demand Heatmap Push ─────────────────────────────────────────────────────
@@ -260,14 +270,23 @@ wss.on('connection', (ws: WebSocket, _request: unknown, decodedToken: DecodedTok
     switch (data.type) {
       // ── Auth ───────────────────────────────────────────────────────────────
       case 'auth': {
+        const clientId = data.id ?? tokenUserId ?? '';
+        const existingDriver = data.role === 'driver' ? drivers.get(clientId) : undefined;
+
         const newClient: ClientInfo = {
           ws,
-          role: data.role,
-          id: data.id ?? tokenUserId ?? '',
+          role: data.role as 'rider' | 'driver',
+          id: clientId,
           isAlive: true,
           lastActivity: Date.now(),
-          ...(data.role === 'driver' ? { status: 'offline' as DriverStatus } : {}),
         };
+
+        if (data.role === 'driver') {
+          newClient.status = existingDriver?.status ?? 'offline';
+          if (existingDriver?.lastLocation) {
+            newClient.lastLocation = existingDriver.lastLocation;
+          }
+        }
 
         setClientInfo(ws, newClient);
 
@@ -618,8 +637,10 @@ wss.on('connection', (ws: WebSocket, _request: unknown, decodedToken: DecodedTok
       riders.delete(client.id);
       console.log(`Rider disconnected: ${client.id}`);
     } else {
-      drivers.delete(client.id);
-      console.log(`Driver disconnected: ${client.id}`);
+      // Do NOT delete the driver from the `drivers` map here!
+      // We keep their state (status, lastLocation) in memory so they can 
+      // still receive Push Notifications while backgrounded/offline.
+      console.log(`Driver WS closed: ${client.id} (Kept in memory for Push)`);
     }
   });
 });
