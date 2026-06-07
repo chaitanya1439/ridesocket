@@ -61,6 +61,11 @@ const drivers = new Map();
  * Key: riderId
  */
 const activeTrips = new Map();
+/**
+ * Stores pending ride requests so drivers reconnecting from background
+ * can receive missed broadcasts. Key: riderId
+ */
+const pendingRequests = new Map();
 const MAX_DRIVER_MATCH_DISTANCE_KM = Number(process.env.MAX_DRIVER_MATCH_DISTANCE_KM ?? 15);
 // ─── Heartbeat & Idle Pruning ─────────────────────────────────────────────────
 const IDLE_TIMEOUT_MS = 15 * 60 * 1000; // 15 minutes
@@ -94,6 +99,12 @@ const heartbeatInterval = setInterval(() => {
         client.isAlive = false;
         ws.ping();
     });
+    // Prune expired pending requests (older than 60 seconds)
+    for (const [riderId, req] of pendingRequests.entries()) {
+        if (now - req.timestamp > 60_000) {
+            pendingRequests.delete(riderId);
+        }
+    }
 }, 30_000);
 // ─── Demand Heatmap Push ─────────────────────────────────────────────────────
 /**
@@ -228,6 +239,17 @@ wss.on('connection', (ws, _request, decodedToken) => {
                     };
                     client.status = statusMap[data.status] ?? 'offline';
                     console.log(`Driver ${client.id} is now ${client.status}`);
+                    if (client.status === 'available') {
+                        // Send any pending ride requests to newly available drivers
+                        for (const [riderId, req] of pendingRequests.entries()) {
+                            if (Date.now() - req.timestamp <= 60_000) {
+                                ws.send(JSON.stringify({
+                                    type: 'new_ride_request',
+                                    payload: { ...req, riderId }
+                                }));
+                            }
+                        }
+                    }
                 }
                 break;
             }
@@ -259,6 +281,8 @@ wss.on('connection', (ws, _request, decodedToken) => {
                     return p;
                 })();
                 console.log(`Ride request from rider ${client.id}:`, ridePayload);
+                // Store pending request for offline/backgrounded drivers
+                pendingRequests.set(client.id, { ...ridePayload, riderId: client.id, timestamp: Date.now() });
                 const pickupLoc = ridePayload.pickupLocation;
                 let matchedCount = 0;
                 drivers.forEach((driver) => {
@@ -314,6 +338,7 @@ wss.on('connection', (ws, _request, decodedToken) => {
                     ...data.payload,
                 };
                 activeTrips.set(data.riderId, tripRecord);
+                pendingRequests.delete(data.riderId);
                 const riderToNotify = riders.get(data.riderId);
                 if (riderToNotify?.ws.readyState === WebSocket.OPEN) {
                     riderToNotify.ws.send(JSON.stringify({ type: 'ride_accepted', payload: tripRecord }));
@@ -503,6 +528,21 @@ app.post('/api/request-ride', (req, res) => {
         return;
     }
     const pickupLoc = body.pickupLocation;
+    // Store in pending requests for reconnecting background drivers
+    const newRequest = { riderId, timestamp: Date.now() };
+    if (body.pickupLocation !== undefined)
+        newRequest.pickupLocation = body.pickupLocation;
+    if (body.dropLocation !== undefined)
+        newRequest.dropLocation = body.dropLocation;
+    if (body.fare !== undefined)
+        newRequest.fare = body.fare;
+    if (body.vehicleType !== undefined)
+        newRequest.vehicleType = body.vehicleType;
+    if (body.riderName !== undefined)
+        newRequest.riderName = body.riderName;
+    if (body.distance !== undefined)
+        newRequest.distance = body.distance;
+    pendingRequests.set(riderId, newRequest);
     // Find nearby available drivers and send push notifications
     let notifiedCount = 0;
     const notificationPromises = [];
