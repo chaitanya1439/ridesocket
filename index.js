@@ -227,6 +227,17 @@ wss.on('connection', (ws, _request, decodedToken) => {
                     ws.send(JSON.stringify({ type: 'sync_state', payload: currentTrip }));
                     console.log(`Synced active state to reconnecting ${data.role} ${newClient.id}`);
                 }
+                // Deliver pending ride requests to reconnecting/newly-online drivers
+                if (data.role === 'driver' && newClient.status !== 'offline') {
+                    for (const [riderId, req] of pendingRequests.entries()) {
+                        if (Date.now() - req.timestamp <= 60_000) {
+                            ws.send(JSON.stringify({
+                                type: 'new_ride_request',
+                                payload: { ...req, riderId }
+                            }));
+                        }
+                    }
+                }
                 break;
             }
             // ── Driver status ──────────────────────────────────────────────────────
@@ -347,6 +358,30 @@ wss.on('connection', (ws, _request, decodedToken) => {
                 notifyRiderOfAcceptance(data.riderId, {
                     driverId: client.id,
                 }).catch((err) => console.error(`[Push] Error notifying rider ${data.riderId}:`, err));
+                // Notify OTHER drivers to remove this request (since it's been accepted)
+                drivers.forEach((otherDriver) => {
+                    if (otherDriver.id !== client.id && otherDriver.ws.readyState === WebSocket.OPEN) {
+                        otherDriver.ws.send(JSON.stringify({
+                            type: 'ride_request_cancelled',
+                            payload: { riderId: data.riderId, reason: 'accepted_by_another' },
+                        }));
+                    }
+                });
+                break;
+            }
+            // ── Ride reject ─────────────────────────────────────────────────────────
+            case 'ride_reject': {
+                if (!client || client.role !== 'driver')
+                    break;
+                console.log(`Driver ${client.id} rejected ride from rider ${data.riderId}`);
+                // Notify the rider that this specific driver rejected
+                const riderForReject = riders.get(data.riderId);
+                if (riderForReject?.ws.readyState === WebSocket.OPEN) {
+                    riderForReject.ws.send(JSON.stringify({
+                        type: 'ride_rejected',
+                        payload: { driverId: client.id },
+                    }));
+                }
                 break;
             }
             // ── Location update ────────────────────────────────────────────────────

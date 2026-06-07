@@ -111,6 +111,11 @@ export interface RideAcceptMessage {
   payload?: Partial<TripRecord>;
 }
 
+export interface RideRejectMessage {
+  type: 'ride_reject';
+  riderId: string;
+}
+
 export interface LocationUpdateMessage {
   type: 'location_update';
   location: Location;
@@ -158,6 +163,7 @@ export type InboundMessage =
   | DriverStatusMessage
   | RideRequestMessage
   | RideAcceptMessage
+  | RideRejectMessage
   | LocationUpdateMessage
   | TripStatusUpdateMessage
   | ChatMessage

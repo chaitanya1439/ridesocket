@@ -84,6 +84,10 @@ export interface RideAcceptMessage {
     riderId: string;
     payload?: Partial<TripRecord>;
 }
+export interface RideRejectMessage {
+    type: 'ride_reject';
+    riderId: string;
+}
 export interface LocationUpdateMessage {
     type: 'location_update';
     location: Location;
@@ -120,7 +124,7 @@ export interface RegisterPushTokenMessage {
 export interface UnregisterPushTokenMessage {
     type: 'unregister_push_token';
 }
-export type InboundMessage = AuthMessage | DriverStatusMessage | RideRequestMessage | RideAcceptMessage | LocationUpdateMessage | TripStatusUpdateMessage | ChatMessage | GetDemandHeatmapMessage | RegisterPushTokenMessage | UnregisterPushTokenMessage;
+export type InboundMessage = AuthMessage | DriverStatusMessage | RideRequestMessage | RideAcceptMessage | RideRejectMessage | LocationUpdateMessage | TripStatusUpdateMessage | ChatMessage | GetDemandHeatmapMessage | RegisterPushTokenMessage | UnregisterPushTokenMessage;
 export interface AuthSuccessMessage {
     type: 'auth_success';
     id: string;
