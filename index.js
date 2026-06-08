@@ -311,13 +311,21 @@ wss.on('connection', (ws, _request, decodedToken) => {
                 const pickupLoc = ridePayload.pickupLocation;
                 let matchedCount = 0;
                 drivers.forEach((driver) => {
-                    if (driver.status !== 'available' || driver.ws.readyState !== WebSocket.OPEN)
+                    if (driver.status !== 'available' || driver.ws.readyState !== WebSocket.OPEN) {
+                        console.log(`[Dispatch] Skipped Driver ${driver.id} - status: ${driver.status}, ws.readyState: ${driver.ws.readyState === WebSocket.OPEN ? 'OPEN' : driver.ws.readyState}`);
                         return;
+                    }
                     // Geospatial filtering: skip drivers outside the match radius
-                    if (pickupLoc && driver.lastLocation) {
-                        const dist = getDistanceInKm(pickupLoc.lat, pickupLoc.lng, driver.lastLocation.lat, driver.lastLocation.lng);
-                        if (dist > MAX_DRIVER_MATCH_DISTANCE_KM)
+                    if (pickupLoc) {
+                        if (!driver.lastLocation) {
+                            console.log(`[Dispatch] Skipped Driver ${driver.id} - no lastLocation known`);
                             return;
+                        }
+                        const dist = getDistanceInKm(pickupLoc.lat, pickupLoc.lng, driver.lastLocation.lat, driver.lastLocation.lng);
+                        if (dist > MAX_DRIVER_MATCH_DISTANCE_KM) {
+                            console.log(`[Dispatch] Skipped Driver ${driver.id} - distance ${dist.toFixed(2)}km > ${MAX_DRIVER_MATCH_DISTANCE_KM}km max`);
+                            return;
+                        }
                     }
                     matchedCount++;
                     driver.ws.send(JSON.stringify({
@@ -331,12 +339,20 @@ wss.on('connection', (ws, _request, decodedToken) => {
                 // push tokens. This ensures drivers receive the request even if the
                 // app is backgrounded or the WebSocket connection is temporarily lost.
                 drivers.forEach((driver) => {
-                    if (driver.status !== 'available')
+                    if (driver.status !== 'available') {
+                        console.log(`[Push Fallback] Skipped Driver ${driver.id} - status: ${driver.status}`);
                         return;
-                    if (pickupLoc && driver.lastLocation) {
-                        const dist = getDistanceInKm(pickupLoc.lat, pickupLoc.lng, driver.lastLocation.lat, driver.lastLocation.lng);
-                        if (dist > MAX_DRIVER_MATCH_DISTANCE_KM)
+                    }
+                    if (pickupLoc) {
+                        if (!driver.lastLocation) {
+                            console.log(`[Push Fallback] Skipped Driver ${driver.id} - no lastLocation known`);
                             return;
+                        }
+                        const dist = getDistanceInKm(pickupLoc.lat, pickupLoc.lng, driver.lastLocation.lat, driver.lastLocation.lng);
+                        if (dist > MAX_DRIVER_MATCH_DISTANCE_KM) {
+                            console.log(`[Push Fallback] Skipped Driver ${driver.id} - distance ${dist.toFixed(2)}km > ${MAX_DRIVER_MATCH_DISTANCE_KM}km max`);
+                            return;
+                        }
                     }
                     notifyDriverOfRideRequest(driver.id, {
                         riderId: client.id,
