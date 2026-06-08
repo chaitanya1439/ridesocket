@@ -211,20 +211,30 @@ wss.on('close', () => {
  * Reject unauthenticated requests before they become WebSocket connections.
  */
 server.on('upgrade', (request, socket, head) => {
+  const clientIp = request.socket.remoteAddress;
+  console.log(`\n[Auth] ═══ WebSocket Upgrade Request ═══`);
+  console.log(`[Auth] Client IP: ${clientIp}`);
+  console.log(`[Auth] URL: ${request.url}`);
+
   try {
     const url = new URL(request.url ?? '', `http://${request.headers.host}`);
     const token = url.searchParams.get('token');
 
     if (!token) {
+      console.log(`[Auth] ✗ REJECTED — No token provided`);
       socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
       socket.destroy();
       return;
     }
 
+    console.log(`[Auth] Token received: ${token.substring(0, 30)}...`);
+
     let decoded: DecodedToken;
     try {
       decoded = jwt.verify(token, JWT_SECRET) as DecodedToken;
-    } catch {
+      console.log(`[Auth] ✓ Token VERIFIED — id: ${decoded.id ?? decoded.userId}, role: ${decoded.role}`);
+    } catch (err: any) {
+      console.log(`[Auth] ✗ REJECTED — Token verification failed: ${err.message}`);
       socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
       socket.destroy();
       return;
@@ -233,7 +243,8 @@ server.on('upgrade', (request, socket, head) => {
     wss.handleUpgrade(request, socket, head, (ws) => {
       wss.emit('connection', ws, request, decoded);
     });
-  } catch {
+  } catch (err: any) {
+    console.log(`[Auth] ✗ REJECTED — Unexpected error: ${err.message}`);
     socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
     socket.destroy();
   }
@@ -242,10 +253,9 @@ server.on('upgrade', (request, socket, head) => {
 // ─── WebSocket Connection Handler ────────────────────────────────────────────
 
 wss.on('connection', (ws: WebSocket, _request: unknown, decodedToken: DecodedToken) => {
-  console.log('New authenticated client connected');
-
   // Support both `id` and `userId` JWT schemas
   const tokenUserId = decodedToken?.id ?? decodedToken?.userId;
+  console.log(`[Auth] ✓ WebSocket CONNECTED — tokenUserId: ${tokenUserId}, role: ${decodedToken?.role}`);
 
   // React Native automatically replies to native ping frames with a pong.
   ws.on('pong', () => {
@@ -273,6 +283,8 @@ wss.on('connection', (ws: WebSocket, _request: unknown, decodedToken: DecodedTok
         const clientId = data.id ?? tokenUserId ?? '';
         const existingDriver = data.role === 'driver' ? drivers.get(clientId) : undefined;
 
+        console.log(`[Auth] 'auth' message received — role: ${data.role}, clientId: ${clientId}, tokenUserId: ${tokenUserId}`);
+
         const newClient: ClientInfo = {
           ws,
           role: data.role as 'rider' | 'driver',
@@ -292,10 +304,12 @@ wss.on('connection', (ws: WebSocket, _request: unknown, decodedToken: DecodedTok
 
         if (data.role === 'rider') {
           riders.set(newClient.id, newClient);
-          console.log(`Rider authorised in memory: ${newClient.id}`);
+          console.log(`[Auth] ✓ Rider REGISTERED in memory — id: ${newClient.id}`);
+          console.log(`[Auth]   Total riders online: ${riders.size}`);
         } else {
           drivers.set(newClient.id, newClient);
-          console.log(`Driver authorised in memory: ${newClient.id}`);
+          console.log(`[Auth] ✓ Driver REGISTERED in memory — id: ${newClient.id}, status: ${newClient.status}`);
+          console.log(`[Auth]   Total drivers online: ${drivers.size}`);
         }
 
         ws.send(JSON.stringify({ type: 'auth_success', id: newClient.id, role: data.role }));
@@ -933,11 +947,28 @@ const broadcastNearbyDrivers = setInterval(() => {
 
 const PORT = process.env.PORT ?? 8080;
 server.listen(PORT, () => {
-  console.log(`Realtime Server listening on port ${PORT}`);
-  console.log('\n─── DEV TOKENS (Expo app lo copy-paste cheyandi) ───────────────');
-  console.log(`RIDER  TOKEN: ${FIXED_TOKENS.rider}`);
-  console.log(`DRIVER TOKEN: ${FIXED_TOKENS.driver}`);
-  console.log('────────────────────────────────────────────────────────────────\n');
+  console.log(`\n══════════════════════════════════════════════════════════════`);
+  console.log(`  Realtime Server listening on port ${PORT}`);
+  console.log(`══════════════════════════════════════════════════════════════`);
+  console.log(`\n─── JWT SECRET ─────────────────────────────────────────────────`);
+  console.log(`  ${JWT_SECRET}`);
+  console.log(`\n─── DEV TOKENS (Expo app lo copy-paste cheyandi) ───────────────`);
+  console.log(`  RIDER  TOKEN: ${FIXED_TOKENS.rider}`);
+  console.log(`  DRIVER TOKEN: ${FIXED_TOKENS.driver}`);
+  console.log(`\n─── VERIFY: Both tokens should decode correctly ────────────────`);
+  try {
+    const rVerify = jwt.verify(FIXED_TOKENS.rider, JWT_SECRET) as any;
+    console.log(`  Rider  token decoded: { id: '${rVerify.id}', role: '${rVerify.role}' } ✓`);
+  } catch (e: any) {
+    console.log(`  Rider  token verification FAILED: ${e.message} ✗`);
+  }
+  try {
+    const dVerify = jwt.verify(FIXED_TOKENS.driver, JWT_SECRET) as any;
+    console.log(`  Driver token decoded: { id: '${dVerify.id}', role: '${dVerify.role}' } ✓`);
+  } catch (e: any) {
+    console.log(`  Driver token verification FAILED: ${e.message} ✗`);
+  }
+  console.log(`══════════════════════════════════════════════════════════════\n`);
 });
 
 // ─── Graceful Shutdown ────────────────────────────────────────────────────────
