@@ -1,10 +1,16 @@
 import { Expo } from 'expo-server-sdk';
 import type { ExpoPushMessage, ExpoPushTicket } from 'expo-server-sdk';
+import { Agent } from 'undici';
 
 // ─── Expo Server SDK Instance ────────────────────────────────────────────────
 // The Expo instance handles batching, retries, and rate-limiting automatically.
+// We pass an explicit undici Agent as httpAgent so the SDK's fetch uses npm
+// undici's own dispatcher instead of Node's built-in one (which has an
+// incompatible onRequestStart interface on Node 22–25).
 
-const expo = new Expo();
+const expo = new Expo({
+  httpAgent: new Agent() as any,
+});
 
 // ─── In-Memory Push Token Registry ───────────────────────────────────────────
 // Maps userId → Expo Push Token (e.g., "ExponentPushToken[xxxx]")

@@ -1,6 +1,6 @@
 import WebSocket from 'ws';
 
-const SOCKET_URL = 'ws://54.175.18.119:8080';
+const SOCKET_URL = 'wss://real.shelteric.com';
 const token = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6ImRyaXZlci0wMDEiLCJyb2xlIjoiZHJpdmVyIn0.LlItUpllcsY5aXlIHt9pH8eI7oRzAc-WJoOcIo0H9NY';
 const urlWithAuth = `${SOCKET_URL}?token=${encodeURIComponent(token)}`;
 

@@ -1,7 +1,7 @@
 import WebSocket from 'ws';
 
 // ─── Configuration ───────────────────────────────────────────────────────────
-const SOCKET_URL = 'ws://real.shelteric.com:8080';
+const SOCKET_URL = 'wss://real.shelteric.com';
 
 const RIDER_TOKEN  = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6InJpZGVyLTAwMSIsInJvbGUiOiJyaWRlciJ9.pz5qZubhjBOCuM-BwbaImq21Hfm-4Iu_W4NF3JL2_ig';
 const DRIVER_TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6ImRyaXZlci0wMDEiLCJyb2xlIjoiZHJpdmVyIn0.LlItUpllcsY5aXlIHt9pH8eI7oRzAc-WJoOcIo0H9NY';

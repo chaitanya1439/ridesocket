@@ -1,10 +1,6 @@
-import * as undici from 'undici';
-// ─── Workaround for Node < 25 / undici conflict ───────────────────────────────
-// Fixes "InvalidArgumentError: invalid onRequestStart method" in expo-server-sdk
-globalThis.Headers = undici.Headers;
-globalThis.Request = undici.Request;
-globalThis.Response = undici.Response;
-globalThis.fetch = undici.fetch;
+// NOTE: The expo-server-sdk uses `import { fetch } from 'undici'` internally,
+// NOT `globalThis.fetch`. The Node built-in dispatcher incompatibility is fixed
+// by passing an explicit undici Agent as `httpAgent` in pushService.ts.
 import express from 'express';
 import { createServer } from 'http';
 import { WebSocketServer, WebSocket } from 'ws';
