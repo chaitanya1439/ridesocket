@@ -1,3 +1,11 @@
+import * as undici from 'undici';
+// ─── Workaround for Node < 25 / undici conflict ───────────────────────────────
+// Fixes "InvalidArgumentError: invalid onRequestStart method" in expo-server-sdk
+globalThis.Headers = undici.Headers as any;
+globalThis.Request = undici.Request as any;
+globalThis.Response = undici.Response as any;
+globalThis.fetch = undici.fetch as any;
+
 import express from 'express';
 import { createServer } from 'http';
 import { WebSocketServer, WebSocket } from 'ws';

@@ -1,6 +1,6 @@
 import WebSocket from 'ws';
 
-const SOCKET_URL = 'ws://real.shelteric.com:8080';
+const SOCKET_URL = 'ws://54.175.18.119:8080:8080';
 const token = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6InJpZGVyLTAwMSIsInJvbGUiOiJyaWRlciJ9.xxx'; // We will use a mock token or let's use the actual rider token if we can construct one
 // Wait, we need a valid rider token signed with the server's JWT_SECRET.
 import jwt from 'jsonwebtoken';
