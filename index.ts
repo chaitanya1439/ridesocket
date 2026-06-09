@@ -275,7 +275,10 @@ wss.on('connection', (ws: WebSocket, _request: unknown, decodedToken: DecodedTok
 
     // Update activity timestamp on every message
     const client = getClientInfo(ws);
-    if (client) client.lastActivity = Date.now();
+    if (client) {
+      client.lastActivity = Date.now();
+      client.isAlive = true;
+    }
 
     switch (data.type) {
       // ── Auth ───────────────────────────────────────────────────────────────
@@ -294,7 +297,9 @@ wss.on('connection', (ws: WebSocket, _request: unknown, decodedToken: DecodedTok
         };
 
         if (data.role === 'driver') {
-          newClient.status = existingDriver?.status ?? 'offline';
+          // Default to 'available' for new drivers so they can receive rides immediately.
+          // Previously defaulted to 'offline', which silently blocked all dispatches.
+          newClient.status = existingDriver?.status ?? 'available';
           if (existingDriver?.lastLocation) {
             newClient.lastLocation = existingDriver.lastLocation;
           }
@@ -409,18 +414,20 @@ wss.on('connection', (ws: WebSocket, _request: unknown, decodedToken: DecodedTok
           // Geospatial filtering: skip drivers outside the match radius
           if (pickupLoc) {
             if (!driver.lastLocation) {
-              console.log(`[Dispatch] Skipped Driver ${driver.id} - no lastLocation known`);
-              return;
-            }
-            const dist = getDistanceInKm(
-              pickupLoc.lat,
-              pickupLoc.lng,
-              driver.lastLocation.lat,
-              driver.lastLocation.lng,
-            );
-            if (dist > MAX_DRIVER_MATCH_DISTANCE_KM) {
-              console.log(`[Dispatch] Skipped Driver ${driver.id} - distance ${dist.toFixed(2)}km > ${MAX_DRIVER_MATCH_DISTANCE_KM}km max`);
-              return;
+              // Driver location unknown — include them anyway (can't compute distance)
+              console.log(`[Dispatch] Including Driver ${driver.id} - no lastLocation known (broadcasting to all available)`);
+              // Fall through to send the request
+            } else {
+              const dist = getDistanceInKm(
+                pickupLoc.lat,
+                pickupLoc.lng,
+                driver.lastLocation.lat,
+                driver.lastLocation.lng,
+              );
+              if (dist > MAX_DRIVER_MATCH_DISTANCE_KM) {
+                console.log(`[Dispatch] Skipped Driver ${driver.id} - distance ${dist.toFixed(2)}km > ${MAX_DRIVER_MATCH_DISTANCE_KM}km max`);
+                return;
+              }
             }
           }
 
@@ -448,16 +455,17 @@ wss.on('connection', (ws: WebSocket, _request: unknown, decodedToken: DecodedTok
           }
           if (pickupLoc) {
             if (!driver.lastLocation) {
-              console.log(`[Push Fallback] Skipped Driver ${driver.id} - no lastLocation known`);
-              return;
-            }
-            const dist = getDistanceInKm(
-              pickupLoc.lat, pickupLoc.lng,
-              driver.lastLocation.lat, driver.lastLocation.lng,
-            );
-            if (dist > MAX_DRIVER_MATCH_DISTANCE_KM) {
-              console.log(`[Push Fallback] Skipped Driver ${driver.id} - distance ${dist.toFixed(2)}km > ${MAX_DRIVER_MATCH_DISTANCE_KM}km max`);
-              return;
+              console.log(`[Push Fallback] Including Driver ${driver.id} - no lastLocation known (sending push anyway)`);
+              // Fall through to send the push notification
+            } else {
+              const dist = getDistanceInKm(
+                pickupLoc.lat, pickupLoc.lng,
+                driver.lastLocation.lat, driver.lastLocation.lng,
+              );
+              if (dist > MAX_DRIVER_MATCH_DISTANCE_KM) {
+                console.log(`[Push Fallback] Skipped Driver ${driver.id} - distance ${dist.toFixed(2)}km > ${MAX_DRIVER_MATCH_DISTANCE_KM}km max`);
+                return;
+              }
             }
           }
           notifyDriverOfRideRequest(driver.id, {
@@ -650,6 +658,12 @@ wss.on('connection', (ws: WebSocket, _request: unknown, decodedToken: DecodedTok
       case 'unregister_push_token': {
         if (!client) break;
         unregisterPushToken(client.id);
+        break;
+      }
+
+      // ── Application Level Ping ─────────────────────────────────────────────
+      case 'ping': {
+        // Silently handled to keep connection alive
         break;
       }
 

@@ -158,6 +158,10 @@ export interface UnregisterPushTokenMessage {
   type: 'unregister_push_token';
 }
 
+export interface PingMessage {
+  type: 'ping';
+}
+
 export type InboundMessage =
   | AuthMessage
   | DriverStatusMessage
@@ -169,7 +173,8 @@ export type InboundMessage =
   | ChatMessage
   | GetDemandHeatmapMessage
   | RegisterPushTokenMessage
-  | UnregisterPushTokenMessage;
+  | UnregisterPushTokenMessage
+  | PingMessage;
 
 // ─── WebSocket message payloads (server → client) ────────────────────────────
 

@@ -124,7 +124,10 @@ export interface RegisterPushTokenMessage {
 export interface UnregisterPushTokenMessage {
     type: 'unregister_push_token';
 }
-export type InboundMessage = AuthMessage | DriverStatusMessage | RideRequestMessage | RideAcceptMessage | RideRejectMessage | LocationUpdateMessage | TripStatusUpdateMessage | ChatMessage | GetDemandHeatmapMessage | RegisterPushTokenMessage | UnregisterPushTokenMessage;
+export interface PingMessage {
+    type: 'ping';
+}
+export type InboundMessage = AuthMessage | DriverStatusMessage | RideRequestMessage | RideAcceptMessage | RideRejectMessage | LocationUpdateMessage | TripStatusUpdateMessage | ChatMessage | GetDemandHeatmapMessage | RegisterPushTokenMessage | UnregisterPushTokenMessage | PingMessage;
 export interface AuthSuccessMessage {
     type: 'auth_success';
     id: string;
