@@ -27,6 +27,8 @@ export interface ClientInfo {
   status?: DriverStatus;
   /** Driver-only: most-recent GPS fix for proximity dispatch */
   lastLocation?: Location;
+  /** Driver-only: vehicle type for dispatch filtering */
+  vehicleType?: string;
 }
 
 // ─── Active trip record ───────────────────────────────────────────────────────
@@ -84,6 +86,7 @@ export interface AuthMessage {
   type: 'auth';
   role: ClientRole;
   id?: string;
+  vehicleType?: string;
 }
 
 export interface DriverStatusMessage {

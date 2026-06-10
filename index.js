@@ -7,6 +7,7 @@ import { WebSocketServer, WebSocket } from 'ws';
 import cors from 'cors';
 import jwt from 'jsonwebtoken';
 import { registerPushToken, unregisterPushToken, sendPushNotification, notifyDriverOfRideRequest, notifyRiderOfAcceptance, notifyTripStatusChange, getPushToken, } from './pushService.js';
+import { setupOcrRoutes } from './ocrService.js';
 // ─── JWT Secret ───────────────────────────────────────────────────────────────
 const JWT_SECRET = process.env.JWT_SECRET ?? '60651d89b02641afeea358be4762f0b047ebae446572e906180e6bd1d4ba6ff05bd4341226a414f5f0db15ea6efd54eb98b7e719c5dc8e0f6370d326cbe79b39';
 // ─── Fixed Tokens (.env lo define chesukoni ikkade generate avutayi) ──────────
@@ -21,6 +22,8 @@ const FIXED_TOKENS = {
 const app = express();
 app.use(cors());
 app.use(express.json());
+// Setup OCR endpoints
+setupOcrRoutes(app);
 const server = createServer(app);
 // 1. Bandwidth Efficiency: Enable per-message deflate compression.
 const wss = new WebSocketServer({
@@ -222,6 +225,7 @@ wss.on('connection', (ws, _request, decodedToken) => {
                     id: clientId,
                     isAlive: true,
                     lastActivity: Date.now(),
+                    ...(data.vehicleType ? { vehicleType: data.vehicleType } : {}),
                 };
                 if (data.role === 'driver') {
                     // Default to 'available' for new drivers so they can receive rides immediately.
@@ -331,7 +335,12 @@ wss.on('connection', (ws, _request, decodedToken) => {
                 let matchedCount = 0;
                 drivers.forEach((driver) => {
                     if (driver.status !== 'available' || driver.ws.readyState !== WebSocket.OPEN) {
-                        console.log(`[Dispatch] Skipped Driver ${driver.id} - status: ${driver.status}, ws.readyState: ${driver.ws.readyState === WebSocket.OPEN ? 'OPEN' : driver.ws.readyState}`);
+                        console.log(`[Dispatch] Skipped Driver ${driver.id} - status: ${driver.status}`);
+                        return;
+                    }
+                    // Vehicle Type matching: Only dispatch if driver's vehicleType matches requested vehicleType
+                    if (ridePayload.vehicleType && driver.vehicleType && ridePayload.vehicleType !== driver.vehicleType) {
+                        console.log(`[Dispatch] Skipped Driver ${driver.id} - vehicle type mismatch (${driver.vehicleType} != ${ridePayload.vehicleType})`);
                         return;
                     }
                     // Geospatial filtering: skip drivers outside the match radius
@@ -578,6 +587,22 @@ wss.on('connection', (ws, _request, decodedToken) => {
 // ─── HTTP Routes ──────────────────────────────────────────────────────────────
 app.get('/', (_req, res) => {
     res.send('Realtime WebSocket Server is running');
+});
+/**
+ * GET /api/vehicle-types
+ * Dynamically fetch allowed vehicle types.
+ */
+app.get('/api/vehicle-types', (_req, res) => {
+    res.json({
+        types: [
+            { id: 'bike', name: 'Bike' },
+            { id: 'auto', name: 'Auto Rickshaw' },
+            { id: 'mini', name: 'Mini Cab' },
+            { id: 'sedan', name: 'Sedan' },
+            { id: 'suv', name: 'SUV' },
+            { id: 'premium', name: 'Premium' },
+        ]
+    });
 });
 // ─── REST: Push-Triggered Ride Request ────────────────────────────────────────
 /**

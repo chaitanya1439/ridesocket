@@ -31,6 +31,7 @@ import {
   notifyTripStatusChange,
   getPushToken,
 } from './pushService.js';
+import { setupOcrRoutes } from './ocrService.js';
 
 // ─── JWT Secret ───────────────────────────────────────────────────────────────
 
@@ -51,6 +52,9 @@ const FIXED_TOKENS = {
 const app = express();
 app.use(cors());
 app.use(express.json());
+
+// Setup OCR endpoints
+setupOcrRoutes(app);
 
 const server = createServer(app);
 
@@ -299,6 +303,7 @@ wss.on('connection', (ws: WebSocket, _request: unknown, decodedToken: DecodedTok
           id: clientId,
           isAlive: true,
           lastActivity: Date.now(),
+          ...(data.vehicleType ? { vehicleType: data.vehicleType } : {}),
         };
 
         if (data.role === 'driver') {
@@ -412,7 +417,13 @@ wss.on('connection', (ws: WebSocket, _request: unknown, decodedToken: DecodedTok
 
         drivers.forEach((driver) => {
           if (driver.status !== 'available' || driver.ws.readyState !== WebSocket.OPEN) {
-            console.log(`[Dispatch] Skipped Driver ${driver.id} - status: ${driver.status}, ws.readyState: ${driver.ws.readyState === WebSocket.OPEN ? 'OPEN' : driver.ws.readyState}`);
+            console.log(`[Dispatch] Skipped Driver ${driver.id} - status: ${driver.status}`);
+            return;
+          }
+
+          // Vehicle Type matching: Only dispatch if driver's vehicleType matches requested vehicleType
+          if (ridePayload.vehicleType && driver.vehicleType && ridePayload.vehicleType !== driver.vehicleType) {
+            console.log(`[Dispatch] Skipped Driver ${driver.id} - vehicle type mismatch (${driver.vehicleType} != ${ridePayload.vehicleType})`);
             return;
           }
 
@@ -702,6 +713,23 @@ wss.on('connection', (ws: WebSocket, _request: unknown, decodedToken: DecodedTok
 
 app.get('/', (_req, res) => {
   res.send('Realtime WebSocket Server is running');
+});
+
+/**
+ * GET /api/vehicle-types
+ * Dynamically fetch allowed vehicle types.
+ */
+app.get('/api/vehicle-types', (_req, res) => {
+  res.json({
+    types: [
+      { id: 'bike', name: 'Bike' },
+      { id: 'auto', name: 'Auto Rickshaw' },
+      { id: 'mini', name: 'Mini Cab' },
+      { id: 'sedan', name: 'Sedan' },
+      { id: 'suv', name: 'SUV' },
+      { id: 'premium', name: 'Premium' },
+    ]
+  });
 });
 
 // ─── REST: Push-Triggered Ride Request ────────────────────────────────────────
