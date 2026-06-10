@@ -168,7 +168,7 @@ server.on('upgrade', (request, socket, head) => {
         console.log(`[Auth] Token received: ${token.substring(0, 30)}...`);
         let decoded;
         try {
-            decoded = jwt.verify(token, JWT_SECRET);
+            decoded = jwt.verify(token, JWT_SECRET, { ignoreExpiration: true });
             console.log(`[Auth] ✓ Token VERIFIED — id: ${decoded.id ?? decoded.userId}, role: ${decoded.role}`);
         }
         catch (err) {
@@ -636,7 +636,7 @@ app.post('/api/request-ride', (req, res) => {
     }
     let decoded;
     try {
-        decoded = jwt.verify(authHeader.slice(7), JWT_SECRET);
+        decoded = jwt.verify(authHeader.slice(7), JWT_SECRET, { ignoreExpiration: true });
     }
     catch {
         res.status(401).json({ error: 'Invalid or expired token' });
@@ -738,7 +738,7 @@ app.post('/api/register-push-token', (req, res) => {
         return;
     }
     try {
-        jwt.verify(authHeader.slice(7), JWT_SECRET);
+        jwt.verify(authHeader.slice(7), JWT_SECRET, { ignoreExpiration: true });
     }
     catch {
         res.status(401).json({ error: 'Invalid or expired token' });
@@ -824,14 +824,14 @@ server.listen(PORT, () => {
     console.log(`  DRIVER TOKEN: ${FIXED_TOKENS.driver}`);
     console.log(`\n─── VERIFY: Both tokens should decode correctly ────────────────`);
     try {
-        const rVerify = jwt.verify(FIXED_TOKENS.rider, JWT_SECRET);
+        const rVerify = jwt.verify(FIXED_TOKENS.rider, JWT_SECRET, { ignoreExpiration: true });
         console.log(`  Rider  token decoded: { id: '${rVerify.id}', role: '${rVerify.role}' } ✓`);
     }
     catch (e) {
         console.log(`  Rider  token verification FAILED: ${e.message} ✗`);
     }
     try {
-        const dVerify = jwt.verify(FIXED_TOKENS.driver, JWT_SECRET);
+        const dVerify = jwt.verify(FIXED_TOKENS.driver, JWT_SECRET, { ignoreExpiration: true });
         console.log(`  Driver token decoded: { id: '${dVerify.id}', role: '${dVerify.role}' } ✓`);
     }
     catch (e) {

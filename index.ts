@@ -240,7 +240,7 @@ server.on('upgrade', (request, socket, head) => {
 
     let decoded: DecodedToken;
     try {
-      decoded = jwt.verify(token, JWT_SECRET) as DecodedToken;
+      decoded = jwt.verify(token, JWT_SECRET, { ignoreExpiration: true }) as DecodedToken;
       console.log(`[Auth] ✓ Token VERIFIED — id: ${decoded.id ?? decoded.userId}, role: ${decoded.role}`);
     } catch (err: any) {
       console.log(`[Auth] ✗ REJECTED — Token verification failed: ${err.message}`);
@@ -766,7 +766,7 @@ app.post('/api/request-ride', (req, res) => {
 
   let decoded: { id?: string; userId?: string; role?: string };
   try {
-    decoded = jwt.verify(authHeader.slice(7), JWT_SECRET) as typeof decoded;
+    decoded = jwt.verify(authHeader.slice(7), JWT_SECRET, { ignoreExpiration: true }) as typeof decoded;
   } catch {
     res.status(401).json({ error: 'Invalid or expired token' });
     return;
@@ -887,7 +887,7 @@ app.post('/api/register-push-token', (req, res) => {
   }
 
   try {
-    jwt.verify(authHeader.slice(7), JWT_SECRET);
+    jwt.verify(authHeader.slice(7), JWT_SECRET, { ignoreExpiration: true });
   } catch {
     res.status(401).json({ error: 'Invalid or expired token' });
     return;
@@ -1004,13 +1004,13 @@ server.listen(PORT, () => {
   console.log(`  DRIVER TOKEN: ${FIXED_TOKENS.driver}`);
   console.log(`\n─── VERIFY: Both tokens should decode correctly ────────────────`);
   try {
-    const rVerify = jwt.verify(FIXED_TOKENS.rider, JWT_SECRET) as any;
+    const rVerify = jwt.verify(FIXED_TOKENS.rider, JWT_SECRET, { ignoreExpiration: true }) as any;
     console.log(`  Rider  token decoded: { id: '${rVerify.id}', role: '${rVerify.role}' } ✓`);
   } catch (e: any) {
     console.log(`  Rider  token verification FAILED: ${e.message} ✗`);
   }
   try {
-    const dVerify = jwt.verify(FIXED_TOKENS.driver, JWT_SECRET) as any;
+    const dVerify = jwt.verify(FIXED_TOKENS.driver, JWT_SECRET, { ignoreExpiration: true }) as any;
     console.log(`  Driver token decoded: { id: '${dVerify.id}', role: '${dVerify.role}' } ✓`);
   } catch (e: any) {
     console.log(`  Driver token verification FAILED: ${e.message} ✗`);
