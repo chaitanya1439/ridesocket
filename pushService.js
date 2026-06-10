@@ -6,6 +6,7 @@ import { Agent } from 'undici';
 // undici's own dispatcher instead of Node's built-in one (which has an
 // incompatible onRequestStart interface on Node 22–25).
 const expo = new Expo({
+    accessToken: 'XEgdE51O6Llc2f4WeU1n6Gzo4LI2hkFSRXnbr1n6',
     httpAgent: new Agent(),
 });
 // ─── In-Memory Push Token Registry ───────────────────────────────────────────

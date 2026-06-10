@@ -9,6 +9,7 @@ import { Agent } from 'undici';
 // incompatible onRequestStart interface on Node 22–25).
 
 const expo = new Expo({
+  accessToken: 'XEgdE51O6Llc2f4WeU1n6Gzo4LI2hkFSRXnbr1n6',
   httpAgent: new Agent() as any,
 });
 
