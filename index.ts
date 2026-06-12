@@ -404,6 +404,7 @@ wss.on('connection', (ws: WebSocket, _request: unknown, decodedToken: DecodedTok
           if (data.vehicleType        !== undefined) p.vehicleType        = data.vehicleType;
           if (data.distance           !== undefined) p.distance           = data.distance;
           if (data.riderName          !== undefined) p.riderName          = data.riderName;
+          if (data.parcelDetails      !== undefined) p.parcelDetails      = data.parcelDetails;
           return p;
         })();
 
@@ -504,10 +505,14 @@ wss.on('connection', (ws: WebSocket, _request: unknown, decodedToken: DecodedTok
 
         client.status = 'busy';
 
+        // Generate a 4-digit OTP for the ride
+        const otp = Math.floor(1000 + Math.random() * 9000).toString();
+
         const tripRecord: TripRecord = {
           riderId: data.riderId,
           driverId: client.id,
           status: 'accepted',
+          otp,
           ...data.payload,
         };
         activeTrips.set(data.riderId, tripRecord);
@@ -552,7 +557,55 @@ wss.on('connection', (ws: WebSocket, _request: unknown, decodedToken: DecodedTok
         break;
       }
 
-      // ── Location update ────────────────────────────────────────────────────
+      // ── Ride cancel ──────────────────────────────────────────────────────────
+      case 'ride_cancel': {
+        if (!client) break;
+        
+        const targetRiderId = client.role === 'rider' ? client.id : (data.riderId ?? client.id);
+        console.log(`Ride cancelled by ${client.role} ${client.id} for rider ${targetRiderId}`);
+
+        const trip = activeTrips.get(targetRiderId);
+        if (trip) {
+          trip.status = 'cancelled';
+          
+          // Notify the other party
+          if (client.role === 'rider') {
+            const driver = drivers.get(trip.driverId);
+            if (driver && driver.ws.readyState === WebSocket.OPEN) {
+              driver.ws.send(JSON.stringify({
+                type: 'trip_status_changed',
+                payload: { driverId: trip.driverId, status: 'cancelled' }
+              }));
+            }
+            if (driver) driver.status = 'available';
+          } else {
+            const rider = riders.get(targetRiderId);
+            if (rider && rider.ws.readyState === WebSocket.OPEN) {
+              rider.ws.send(JSON.stringify({
+                type: 'trip_status_changed',
+                payload: { driverId: trip.driverId, status: 'cancelled' }
+              }));
+            }
+            client.status = 'available';
+          }
+          activeTrips.delete(targetRiderId);
+        } else {
+          // If the ride was still pending
+          if (pendingRequests.has(targetRiderId)) {
+            pendingRequests.delete(targetRiderId);
+            // Broadcast cancellation to all drivers
+            drivers.forEach((d) => {
+              if (d.ws.readyState === WebSocket.OPEN) {
+                d.ws.send(JSON.stringify({
+                  type: 'ride_request_cancelled',
+                  payload: { riderId: targetRiderId, reason: 'cancelled_by_rider' }
+                }));
+              }
+            });
+          }
+        }
+        break;
+      }
       case 'location_update': {
         if (!client || client.role !== 'driver') break;
 
@@ -723,7 +776,9 @@ app.get('/api/vehicle-types', (_req, res) => {
   res.json({
     types: [
       { id: 'bike', name: 'Bike' },
-      { id: 'auto', name: 'Auto Rickshaw' },
+      { id: 'auto', name: 'Auto' },
+      { id: 'she-bike', name: 'She Bike' },
+      { id: 'parcel-bike', name: 'Parcel Bike' },
       { id: 'mini', name: 'Mini Cab' },
       { id: 'sedan', name: 'Sedan' },
       { id: 'suv', name: 'SUV' },

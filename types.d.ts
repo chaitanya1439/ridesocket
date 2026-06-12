@@ -33,6 +33,7 @@ export interface TripRecord {
     vehicleType?: string;
     distance?: number;
     riderName?: string;
+    otp?: string;
     [key: string]: unknown;
 }
 export interface DecodedToken {
@@ -59,6 +60,7 @@ export interface RideRequestPayload {
     vehicleType?: string;
     distance?: number;
     riderName?: string;
+    parcelDetails?: any;
 }
 export interface AuthMessage {
     type: 'auth';
@@ -81,6 +83,7 @@ export interface RideRequestMessage {
     vehicleType?: string;
     distance?: number;
     riderName?: string;
+    parcelDetails?: any;
 }
 export interface RideAcceptMessage {
     type: 'ride_accept';
@@ -90,6 +93,11 @@ export interface RideAcceptMessage {
 export interface RideRejectMessage {
     type: 'ride_reject';
     riderId: string;
+}
+export interface RideCancelMessage {
+    type: 'ride_cancel';
+    riderId?: string;
+    reason?: string;
 }
 export interface LocationUpdateMessage {
     type: 'location_update';
@@ -130,7 +138,7 @@ export interface UnregisterPushTokenMessage {
 export interface PingMessage {
     type: 'ping';
 }
-export type InboundMessage = AuthMessage | DriverStatusMessage | RideRequestMessage | RideAcceptMessage | RideRejectMessage | LocationUpdateMessage | TripStatusUpdateMessage | ChatMessage | GetDemandHeatmapMessage | RegisterPushTokenMessage | UnregisterPushTokenMessage | PingMessage;
+export type InboundMessage = AuthMessage | DriverStatusMessage | RideRequestMessage | RideAcceptMessage | RideRejectMessage | RideCancelMessage | LocationUpdateMessage | TripStatusUpdateMessage | ChatMessage | GetDemandHeatmapMessage | RegisterPushTokenMessage | UnregisterPushTokenMessage | PingMessage;
 export interface AuthSuccessMessage {
     type: 'auth_success';
     id: string;

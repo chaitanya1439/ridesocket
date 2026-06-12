@@ -45,6 +45,7 @@ export interface TripRecord {
   vehicleType?: string;
   distance?: number;
   riderName?: string;
+  otp?: string;
   [key: string]: unknown; // allow spread of additional ride-request fields
 }
 
@@ -80,6 +81,7 @@ export interface RideRequestPayload {
   vehicleType?: string;
   distance?: number;
   riderName?: string;
+  parcelDetails?: any;
 }
 
 export interface AuthMessage {
@@ -106,6 +108,7 @@ export interface RideRequestMessage {
   vehicleType?: string;
   distance?: number;
   riderName?: string;
+  parcelDetails?: any;
 }
 
 export interface RideAcceptMessage {
@@ -117,6 +120,12 @@ export interface RideAcceptMessage {
 export interface RideRejectMessage {
   type: 'ride_reject';
   riderId: string;
+}
+
+export interface RideCancelMessage {
+  type: 'ride_cancel';
+  riderId?: string; // The rider whose ride is being cancelled. Optional for riders (can use their own ID).
+  reason?: string;
 }
 
 export interface LocationUpdateMessage {
@@ -171,6 +180,7 @@ export type InboundMessage =
   | RideRequestMessage
   | RideAcceptMessage
   | RideRejectMessage
+  | RideCancelMessage
   | LocationUpdateMessage
   | TripStatusUpdateMessage
   | ChatMessage
