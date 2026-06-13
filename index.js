@@ -328,6 +328,10 @@ wss.on('connection', (ws, _request, decodedToken) => {
                         p.riderName = data.riderName;
                     if (data.parcelDetails !== undefined)
                         p.parcelDetails = data.parcelDetails;
+                    if (data.pickupAddress !== undefined)
+                        p.pickupAddress = data.pickupAddress;
+                    if (data.dropAddress !== undefined)
+                        p.dropAddress = data.dropAddress;
                     return p;
                 })();
                 console.log(`Ride request from rider ${client.id}:`, ridePayload);
@@ -392,7 +396,8 @@ wss.on('connection', (ws, _request, decodedToken) => {
                     notifyDriverOfRideRequest(driver.id, {
                         riderId: client.id,
                         riderName: ridePayload.riderName,
-                        pickupAddress: pickupLoc ? `${pickupLoc.lat.toFixed(4)}, ${pickupLoc.lng.toFixed(4)}` : undefined,
+                        pickupAddress: ridePayload.pickupAddress ?? (pickupLoc ? `${pickupLoc.lat.toFixed(4)}, ${pickupLoc.lng.toFixed(4)}` : undefined),
+                        dropAddress: ridePayload.dropAddress,
                         fare: ridePayload.fare,
                         distance: ridePayload.distance ? parseFloat(String(ridePayload.distance)) : undefined,
                         vehicleType: ridePayload.vehicleType ?? ridePayload.vehicle,
@@ -414,13 +419,35 @@ wss.on('connection', (ws, _request, decodedToken) => {
                     driverId: client.id,
                     status: 'accepted',
                     otp,
+                    driverLat: client.lastLocation?.lat,
+                    driverLng: client.lastLocation?.lng,
+                    driverName: client.id, // Use driver ID as name if name not available
                     ...data.payload,
                 };
                 activeTrips.set(data.riderId, tripRecord);
                 pendingRequests.delete(data.riderId);
+                console.log(`[ride_accept] Driver ${client.id} accepted ride for rider ${data.riderId}`);
+                console.log(`[ride_accept] Rider WS lookup: riders.has(${data.riderId}) = ${riders.has(data.riderId)}`);
                 const riderToNotify = riders.get(data.riderId);
                 if (riderToNotify?.ws.readyState === WebSocket.OPEN) {
+                    console.log(`[ride_accept] Sending ride_accepted to rider ${data.riderId} via WebSocket`);
                     riderToNotify.ws.send(JSON.stringify({ type: 'ride_accepted', payload: tripRecord }));
+                }
+                else {
+                    console.log(`[ride_accept] Rider ${data.riderId} WebSocket not available (readyState: ${riderToNotify?.ws.readyState ?? 'NOT_FOUND'})`);
+                    // Try to find rider by iterating all riders (in case riderId doesn't match Map key)
+                    let found = false;
+                    riders.forEach((rider, rId) => {
+                        if (!found && rider.ws.readyState === WebSocket.OPEN) {
+                            // Check if this rider has a pending request matching this riderId
+                            const pendingForRider = pendingRequests.get(rId);
+                            if (pendingForRider && pendingForRider.riderId === data.riderId) {
+                                console.log(`[ride_accept] Found rider ${rId} with matching pending request`);
+                                rider.ws.send(JSON.stringify({ type: 'ride_accepted', payload: tripRecord }));
+                                found = true;
+                            }
+                        }
+                    });
                 }
                 // Push notification to rider: "Your ride has been accepted!"
                 notifyRiderOfAcceptance(data.riderId, {
@@ -760,6 +787,8 @@ app.post('/api/request-ride', (req, res) => {
                     vehicleType: body.vehicleType,
                     riderName: body.riderName,
                     distance: body.distance,
+                    pickupAddress: body.pickupAddress,
+                    dropAddress: body.dropAddress,
                 },
             }));
         }

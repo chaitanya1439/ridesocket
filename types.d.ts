@@ -61,6 +61,8 @@ export interface RideRequestPayload {
     distance?: number;
     riderName?: string;
     parcelDetails?: any;
+    pickupAddress?: string;
+    dropAddress?: string;
 }
 export interface AuthMessage {
     type: 'auth';
@@ -84,6 +86,8 @@ export interface RideRequestMessage {
     distance?: number;
     riderName?: string;
     parcelDetails?: any;
+    pickupAddress?: string;
+    dropAddress?: string;
 }
 export interface RideAcceptMessage {
     type: 'ride_accept';
