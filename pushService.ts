@@ -259,6 +259,9 @@ export async function notifyDriverOfRideRequest(
       ...(rideInfo.vehicleType != null ? { vehicleType: rideInfo.vehicleType } : {}),
       ...(rideInfo.pickupLat != null ? { pickupLat: rideInfo.pickupLat } : {}),
       ...(rideInfo.pickupLng != null ? { pickupLng: rideInfo.pickupLng } : {}),
+      ...(rideInfo.dropLat != null ? { dropLat: rideInfo.dropLat } : {}),
+      ...(rideInfo.dropLng != null ? { dropLng: rideInfo.dropLng } : {}),
+      ...(rideInfo.dropAddress != null ? { dropAddress: rideInfo.dropAddress } : {}),
     },
   );
 }

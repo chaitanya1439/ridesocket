@@ -746,6 +746,10 @@ app.post('/api/request-ride', (req, res) => {
         newRequest.riderName = body.riderName;
     if (body.distance !== undefined)
         newRequest.distance = body.distance;
+    if (body.pickupAddress !== undefined)
+        newRequest.pickupAddress = body.pickupAddress;
+    if (body.dropAddress !== undefined)
+        newRequest.dropAddress = body.dropAddress;
     pendingRequests.set(riderId, newRequest);
     // Find nearby available drivers and send push notifications
     let notifiedCount = 0;
