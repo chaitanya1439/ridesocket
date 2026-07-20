@@ -1115,7 +1115,12 @@ app.post('/auth/login', (req, res) => {
 const broadcastNearbyDrivers = setInterval(() => {
   const availableDrivers = Array.from(drivers.entries())
     .filter(([, d]) => d.status === 'available' && d.lastLocation != null)
-    .map(([id, d]) => ({ id, lat: d.lastLocation!.lat, lng: d.lastLocation!.lng }));
+    .map(([id, d]) => ({ 
+      id, 
+      lat: d.lastLocation!.lat, 
+      lng: d.lastLocation!.lng,
+      vehicleType: d.vehicleType || 'bike'
+    }));
 
   if (availableDrivers.length === 0) return;
 
