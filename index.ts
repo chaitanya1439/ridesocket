@@ -9,7 +9,7 @@ import { WebSocketServer, WebSocket } from 'ws';
 import cors from 'cors';
 import jwt from 'jsonwebtoken';
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
-import { DynamoDBDocumentClient, GetCommand } from "@aws-sdk/lib-dynamodb";
+import { DynamoDBDocumentClient, GetCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
 
 const dbClient = new DynamoDBClient({ region: process.env.AWS_REGION || "us-east-1" });
 const docClient = DynamoDBDocumentClient.from(dbClient);
@@ -60,6 +60,38 @@ app.use(express.json());
 
 // Setup OCR endpoints
 setupOcrRoutes(app);
+
+// Simple healthcheck
+app.get('/', (req, res) => res.send('Realtime Server Active'));
+
+// Subscription Purchase Endpoint
+app.post('/buy-subscription', async (req, res) => {
+  const { driverId } = req.body;
+  if (!driverId) {
+    return res.status(400).json({ success: false, error: 'driverId is required' });
+  }
+
+  try {
+    const expiryDate = new Date();
+    expiryDate.setDate(expiryDate.getDate() + 2); // 2 Days Plan
+
+    await docClient.send(new UpdateCommand({
+      TableName: 'ridego-users',
+      Key: { userId: driverId },
+      UpdateExpression: 'SET subscriptionStatus = :status, subscriptionExpiry = :expiry',
+      ExpressionAttributeValues: {
+        ':status': 'active',
+        ':expiry': expiryDate.toISOString()
+      }
+    }));
+    
+    console.log(`[Subscription API] Driver ${driverId} purchased subscription successfully.`);
+    return res.json({ success: true, message: 'Subscription updated' });
+  } catch (error: any) {
+    console.error('[Subscription API] Error updating DynamoDB:', error);
+    return res.status(500).json({ success: false, error: 'Failed to update subscription in database' });
+  }
+});
 
 const server = createServer(app);
 

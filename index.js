@@ -7,7 +7,7 @@ import { WebSocketServer, WebSocket } from 'ws';
 import cors from 'cors';
 import jwt from 'jsonwebtoken';
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
-import { DynamoDBDocumentClient, GetCommand } from "@aws-sdk/lib-dynamodb";
+import { DynamoDBDocumentClient, GetCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
 const dbClient = new DynamoDBClient({ region: process.env.AWS_REGION || "us-east-1" });
 const docClient = DynamoDBDocumentClient.from(dbClient);
 import { registerPushToken, unregisterPushToken, sendPushNotification, notifyDriverOfRideRequest, notifyRiderOfAcceptance, notifyTripStatusChange, getPushToken, } from './pushService.js';
@@ -28,6 +28,34 @@ app.use(cors());
 app.use(express.json());
 // Setup OCR endpoints
 setupOcrRoutes(app);
+// Simple healthcheck
+app.get('/', (req, res) => res.send('Realtime Server Active'));
+// Subscription Purchase Endpoint
+app.post('/buy-subscription', async (req, res) => {
+    const { driverId } = req.body;
+    if (!driverId) {
+        return res.status(400).json({ success: false, error: 'driverId is required' });
+    }
+    try {
+        const expiryDate = new Date();
+        expiryDate.setDate(expiryDate.getDate() + 2); // 2 Days Plan
+        await docClient.send(new UpdateCommand({
+            TableName: 'ridego-users',
+            Key: { userId: driverId },
+            UpdateExpression: 'SET subscriptionStatus = :status, subscriptionExpiry = :expiry',
+            ExpressionAttributeValues: {
+                ':status': 'active',
+                ':expiry': expiryDate.toISOString()
+            }
+        }));
+        console.log(`[Subscription API] Driver ${driverId} purchased subscription successfully.`);
+        return res.json({ success: true, message: 'Subscription updated' });
+    }
+    catch (error) {
+        console.error('[Subscription API] Error updating DynamoDB:', error);
+        return res.status(500).json({ success: false, error: 'Failed to update subscription in database' });
+    }
+});
 const server = createServer(app);
 // 1. Bandwidth Efficiency: Enable per-message deflate compression.
 const wss = new WebSocketServer({
@@ -276,6 +304,18 @@ wss.on('connection', (ws, _request, decodedToken) => {
                             console.log(`[Auth] ✓ Driver REGISTERED in memory — id: ${newClient.id}, status: ${newClient.status}`);
                             console.log(`[Auth]   Total drivers online: ${drivers.size}`);
                             ws.send(JSON.stringify({ type: 'auth_success', id: newClient.id, role: data.role }));
+                            // Offline Recovery Sync
+                            let currentTrip;
+                            for (const trip of activeTrips.values()) {
+                                if (trip.driverId === newClient.id) {
+                                    currentTrip = trip;
+                                    break;
+                                }
+                            }
+                            if (currentTrip) {
+                                ws.send(JSON.stringify({ type: 'sync_state', payload: currentTrip }));
+                                console.log(`Synced active state to reconnecting driver ${newClient.id}`);
+                            }
                             // Deliver pending ride requests to reconnecting/newly-online drivers
                             if (newClient.status !== 'offline') {
                                 for (const [riderId, req] of pendingRequests.entries()) {
@@ -294,48 +334,19 @@ wss.on('connection', (ws, _request, decodedToken) => {
                             ws.close(1011, 'Internal Error');
                         }
                     })();
-                    // Return early as the async block handles registration
-                    return;
+                    break; // Exit the switch statement for driver
                 }
+                // ---- Rider Registration Flow ----
                 setClientInfo(ws, newClient);
-                if (data.role === 'rider') {
-                    riders.set(newClient.id, newClient);
-                    console.log(`[Auth] ✓ Rider REGISTERED in memory — id: ${newClient.id}`);
-                    console.log(`[Auth]   Total riders online: ${riders.size}`);
-                }
-                else {
-                    drivers.set(newClient.id, newClient);
-                    console.log(`[Auth] ✓ Driver REGISTERED in memory — id: ${newClient.id}, status: ${newClient.status}`);
-                    console.log(`[Auth]   Total drivers online: ${drivers.size}`);
-                }
+                riders.set(newClient.id, newClient);
+                console.log(`[Auth] ✓ Rider REGISTERED in memory — id: ${newClient.id}`);
+                console.log(`[Auth]   Total riders online: ${riders.size}`);
                 ws.send(JSON.stringify({ type: 'auth_success', id: newClient.id, role: data.role }));
-                // Offline Recovery Sync — instantly restore in-progress trips on reconnect
-                let currentTrip;
-                if (data.role === 'rider') {
-                    currentTrip = activeTrips.get(newClient.id);
-                }
-                else {
-                    for (const trip of activeTrips.values()) {
-                        if (trip.driverId === newClient.id) {
-                            currentTrip = trip;
-                            break;
-                        }
-                    }
-                }
+                // Offline Recovery Sync for Rider
+                const currentTrip = activeTrips.get(newClient.id);
                 if (currentTrip) {
                     ws.send(JSON.stringify({ type: 'sync_state', payload: currentTrip }));
-                    console.log(`Synced active state to reconnecting ${data.role} ${newClient.id}`);
-                }
-                // Deliver pending ride requests to reconnecting/newly-online drivers
-                if (data.role === 'driver' && newClient.status !== 'offline') {
-                    for (const [riderId, req] of pendingRequests.entries()) {
-                        if (Date.now() - req.timestamp <= 60_000) {
-                            ws.send(JSON.stringify({
-                                type: 'new_ride_request',
-                                payload: { ...req, riderId }
-                            }));
-                        }
-                    }
+                    console.log(`Synced active state to reconnecting rider ${newClient.id}`);
                 }
                 break;
             }
@@ -951,7 +962,12 @@ app.post('/auth/login', (req, res) => {
 const broadcastNearbyDrivers = setInterval(() => {
     const availableDrivers = Array.from(drivers.entries())
         .filter(([, d]) => d.status === 'available' && d.lastLocation != null)
-        .map(([id, d]) => ({ id, lat: d.lastLocation.lat, lng: d.lastLocation.lng }));
+        .map(([id, d]) => ({
+        id,
+        lat: d.lastLocation.lat,
+        lng: d.lastLocation.lng,
+        vehicleType: d.vehicleType || 'bike'
+    }));
     if (availableDrivers.length === 0)
         return;
     const payload = JSON.stringify({ type: 'nearby_drivers', payload: availableDrivers });
