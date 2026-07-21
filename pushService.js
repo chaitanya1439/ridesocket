@@ -59,57 +59,8 @@ export function getAllPushTokens() {
  * @returns The push ticket from Expo, or null if the user has no registered token.
  */
 export async function sendPushNotification(targetUserId, title, body, data = {}, options = {}) {
-    const pushToken = pushTokenRegistry.get(targetUserId);
-    if (!pushToken) {
-        console.warn(`[Push] No push token registered for user ${targetUserId}`);
-        return null;
-    }
-    if (!Expo.isExpoPushToken(pushToken)) {
-        console.error(`[Push] Token for ${targetUserId} is no longer valid: ${pushToken}`);
-        pushTokenRegistry.delete(targetUserId);
-        return null;
-    }
-    const message = {
-        to: pushToken,
-        title,
-        body,
-        data: data,
-        sound: 'default',
-        priority: 'high',
-        // Android-specific: use a custom channel for ride alerts
-        channelId: 'ride-alerts',
-        ...options,
-    };
-    try {
-        const chunks = expo.chunkPushNotifications([message]);
-        const tickets = [];
-        for (const chunk of chunks) {
-            const ticketChunk = await expo.sendPushNotificationsAsync(chunk);
-            tickets.push(...ticketChunk);
-        }
-        const ticket = tickets[0];
-        if (!ticket) {
-            console.warn(`[Push] No ticket returned for ${targetUserId}`);
-            return null;
-        }
-        if (ticket.status === 'ok') {
-            console.log(`[Push] ✓ Notification sent to ${targetUserId}`);
-        }
-        else {
-            console.error(`[Push] ✗ Failed for ${targetUserId}:`, ticket.message);
-            // Auto-cleanup invalid tokens
-            if (ticket.details?.error === 'DeviceNotRegistered' ||
-                ticket.details?.error === 'InvalidCredentials') {
-                pushTokenRegistry.delete(targetUserId);
-                console.log(`[Push] Removed stale token for ${targetUserId}`);
-            }
-        }
-        return ticket;
-    }
-    catch (error) {
-        console.error(`[Push] Network error sending to ${targetUserId}:`, error);
-        return null;
-    }
+    // Push Notifications have been disabled by removing FCM completely.
+    return null;
 }
 // ─── Batch Notifications ─────────────────────────────────────────────────────
 /**
