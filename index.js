@@ -104,7 +104,7 @@ const activeTrips = new Map();
  * can receive missed broadcasts. Key: riderId
  */
 const pendingRequests = new Map();
-const MAX_DRIVER_MATCH_DISTANCE_KM = Number(process.env.MAX_DRIVER_MATCH_DISTANCE_KM ?? 15);
+const MAX_DRIVER_MATCH_DISTANCE_KM = Number(process.env.MAX_DRIVER_MATCH_DISTANCE_KM ?? 30);
 // ─── Heartbeat & Idle Pruning ─────────────────────────────────────────────────
 const IDLE_TIMEOUT_MS = 15 * 60 * 1000; // 15 minutes
 const heartbeatInterval = setInterval(() => {

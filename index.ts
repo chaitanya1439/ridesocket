@@ -159,7 +159,7 @@ const activeTrips = new Map<string, TripRecord>();
 const pendingRequests = new Map<string, RideRequestPayload & { timestamp: number; riderId: string }>();
 
 const MAX_DRIVER_MATCH_DISTANCE_KM = Number(
-  process.env.MAX_DRIVER_MATCH_DISTANCE_KM ?? 15,
+  process.env.MAX_DRIVER_MATCH_DISTANCE_KM ?? 30,
 );
 
 // ─── Heartbeat & Idle Pruning ─────────────────────────────────────────────────
