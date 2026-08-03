@@ -465,6 +465,54 @@ wss.on('connection', (ws, _request, decodedToken) => {
                 });
                 break;
             }
+            // ── Instant Ride Start (QR Scan) ───────────────────────────────────────
+            case 'instant_ride_start': {
+                if (!client || client.role !== 'driver')
+                    break;
+                const { bookingId, riderId, driverName, code, pickup, drop, vehicle, fare } = data;
+                if (!riderId)
+                    break;
+                client.status = 'busy';
+                const tripRecord = {
+                    riderId,
+                    driverId: client.id,
+                    status: 'accepted',
+                    otp: code || Math.floor(1000 + Math.random() * 9000).toString(),
+                    driverLat: client.lastLocation?.lat,
+                    driverLng: client.lastLocation?.lng,
+                    driverName: driverName || client.id,
+                    pickup,
+                    drop,
+                    vehicle,
+                    fare,
+                };
+                activeTrips.set(riderId, tripRecord);
+                pendingRequests.delete(riderId);
+                console.log(`[instant_ride_start] Driver ${client.id} started instant ride for rider ${riderId}`);
+                // Notify Rider
+                const riderToNotify = riders.get(riderId);
+                let riderFound = false;
+                if (riderToNotify?.ws.readyState === WebSocket.OPEN) {
+                    riderToNotify.ws.send(JSON.stringify({ type: 'instant_ride_started', payload: tripRecord }));
+                    riderFound = true;
+                }
+                else {
+                    riders.forEach((r, rId) => {
+                        if (!riderFound && r.ws.readyState === WebSocket.OPEN && rId === riderId) {
+                            r.ws.send(JSON.stringify({ type: 'instant_ride_started', payload: tripRecord }));
+                            riderFound = true;
+                        }
+                    });
+                }
+                // Notify Driver
+                if (client.ws.readyState === WebSocket.OPEN) {
+                    client.ws.send(JSON.stringify({ type: 'instant_ride_confirmed', payload: tripRecord }));
+                }
+                // Push Notification to rider
+                notifyRiderOfAcceptance(riderId, { driverId: client.id })
+                    .catch((err) => console.error(`[Push] Error notifying rider ${riderId} of instant ride:`, err));
+                break;
+            }
             // ── Ride accept ────────────────────────────────────────────────────────
             case 'ride_accept': {
                 if (!client || client.role !== 'driver')

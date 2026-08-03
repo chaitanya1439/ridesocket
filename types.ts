@@ -178,6 +178,11 @@ export interface PingMessage {
   type: 'ping';
 }
 
+export interface InstantRideStartMessage {
+  type: 'instant_ride_start';
+  payload?: any;
+}
+
 export type InboundMessage =
   | AuthMessage
   | DriverStatusMessage
@@ -191,7 +196,8 @@ export type InboundMessage =
   | GetDemandHeatmapMessage
   | RegisterPushTokenMessage
   | UnregisterPushTokenMessage
-  | PingMessage;
+  | PingMessage
+  | InstantRideStartMessage;
 
 // ─── WebSocket message payloads (server → client) ────────────────────────────
 
