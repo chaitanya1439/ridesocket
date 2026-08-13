@@ -1195,7 +1195,9 @@ app.post('/auth/login', async (req, res) => {
       Key: { userId: uid }
     }));
 
+    let isNewUser = false;
     if (!getResult.Item) {
+      isNewUser = true;
       console.log(`[Auth Login] User not found in DynamoDB. Creating new record for ${uid}`);
       await docClient.send(new PutCommand({
         TableName: 'ridego-users',
@@ -1217,7 +1219,7 @@ app.post('/auth/login', async (req, res) => {
       { expiresIn: '7d' }
     );
 
-    res.json({ token: internalToken, id: uid, role });
+    res.json({ token: internalToken, id: uid, role, isNewUser });
   } catch (dbErr: any) {
     console.error('[Auth Login] DynamoDB Error:', dbErr);
     res.status(500).json({ error: 'Database operation failed' });
