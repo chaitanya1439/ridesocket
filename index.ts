@@ -1227,6 +1227,55 @@ app.post('/auth/login', async (req, res) => {
 });
 
 /**
+ * POST /auth/update-profile
+ * Completes the user profile with Name, Email, and Gender.
+ */
+app.post('/auth/update-profile', async (req, res) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader?.startsWith('Bearer ')) {
+    res.status(401).json({ error: 'Authorization header required' });
+    return;
+  }
+
+  const token = authHeader.slice(7);
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET) as any;
+    const uid = decoded.id || decoded.userId;
+
+    const { name, email, gender } = req.body;
+
+    if (!name || !email || !gender) {
+      res.status(400).json({ error: 'Name, email, and gender are required' });
+      return;
+    }
+
+    await docClient.send(new UpdateCommand({
+      TableName: 'ridego-users',
+      Key: { userId: uid },
+      UpdateExpression: 'SET #name = :name, #email = :email, #gender = :gender',
+      ExpressionAttributeNames: {
+        '#name': 'name',
+        '#email': 'email',
+        '#gender': 'gender'
+      },
+      ExpressionAttributeValues: {
+        ':name': name,
+        ':email': email,
+        ':gender': gender
+      }
+    }));
+
+    res.json({
+      message: 'Profile updated successfully',
+      user: { name, email, gender }
+    });
+  } catch (error) {
+    console.error('[Auth Update Profile] Error:', error);
+    res.status(500).json({ error: 'Failed to update profile' });
+  }
+});
+
+/**
  * POST /auth/refresh
  * Refresh the JWT token so the user stays logged in.
  */

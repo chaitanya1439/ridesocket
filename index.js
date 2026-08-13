@@ -1008,14 +1008,16 @@ app.post('/auth/login', async (req, res) => {
         // Check if user exists in DynamoDB
         const getResult = await docClient.send(new GetCommand({
             TableName: 'ridego-users',
-            Key: { id: uid } // Or phone, depending on how they designed the PK
+            Key: { userId: uid }
         }));
+        let isNewUser = false;
         if (!getResult.Item) {
+            isNewUser = true;
             console.log(`[Auth Login] User not found in DynamoDB. Creating new record for ${uid}`);
             await docClient.send(new PutCommand({
                 TableName: 'ridego-users',
                 Item: {
-                    id: uid,
+                    userId: uid,
                     phone: phone,
                     role: role,
                     createdAt: new Date().toISOString()
@@ -1027,11 +1029,83 @@ app.post('/auth/login', async (req, res) => {
         }
         // Issue internal JWT for WebSocket Authentication
         const internalToken = jwt.sign({ id: uid, role }, JWT_SECRET, { expiresIn: '7d' });
-        res.json({ token: internalToken, id: uid, role });
+        res.json({ token: internalToken, id: uid, role, isNewUser });
     }
     catch (dbErr) {
         console.error('[Auth Login] DynamoDB Error:', dbErr);
         res.status(500).json({ error: 'Database operation failed' });
+    }
+});
+/**
+ * POST /auth/update-profile
+ * Completes the user profile with Name, Email, and Gender.
+ */
+app.post('/auth/update-profile', async (req, res) => {
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith('Bearer ')) {
+        res.status(401).json({ error: 'Authorization header required' });
+        return;
+    }
+    const token = authHeader.slice(7);
+    try {
+        const decoded = jwt.verify(token, JWT_SECRET);
+        const uid = decoded.id || decoded.userId;
+        const { name, email, gender } = req.body;
+        if (!name || !email || !gender) {
+            res.status(400).json({ error: 'Name, email, and gender are required' });
+            return;
+        }
+        await docClient.send(new UpdateCommand({
+            TableName: 'ridego-users',
+            Key: { userId: uid },
+            UpdateExpression: 'SET #name = :name, #email = :email, #gender = :gender',
+            ExpressionAttributeNames: {
+                '#name': 'name',
+                '#email': 'email',
+                '#gender': 'gender'
+            },
+            ExpressionAttributeValues: {
+                ':name': name,
+                ':email': email,
+                ':gender': gender
+            }
+        }));
+        res.json({
+            message: 'Profile updated successfully',
+            user: { name, email, gender }
+        });
+    }
+    catch (error) {
+        console.error('[Auth Update Profile] Error:', error);
+        res.status(500).json({ error: 'Failed to update profile' });
+    }
+});
+/**
+ * POST /auth/refresh
+ * Refresh the JWT token so the user stays logged in.
+ */
+app.post('/auth/refresh', async (req, res) => {
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith('Bearer ')) {
+        res.status(401).json({ error: 'Authorization header required' });
+        return;
+    }
+    const oldToken = authHeader.slice(7);
+    try {
+        // We ignore expiration to allow slightly expired tokens to be refreshed
+        const decoded = jwt.verify(oldToken, JWT_SECRET, { ignoreExpiration: true });
+        if (!decoded || (!decoded.id && !decoded.userId)) {
+            throw new Error("Invalid token payload");
+        }
+        const uid = decoded.id || decoded.userId;
+        const role = decoded.role;
+        // Issue a new 7-day token
+        const newToken = jwt.sign({ id: uid, role }, JWT_SECRET, { expiresIn: '7d' });
+        res.json({ token: newToken });
+    }
+    catch (err) {
+        console.error('[Auth Refresh] Error:', err);
+        res.status(401).json({ error: 'Invalid token' });
     }
 });
 // ─── Nearby Drivers Broadcast ─────────────────────────────────────────────────
