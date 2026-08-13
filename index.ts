@@ -1192,7 +1192,7 @@ app.post('/auth/login', async (req, res) => {
     // Check if user exists in DynamoDB
     const getResult = await docClient.send(new GetCommand({
       TableName: 'ridego-users',
-      Key: { id: uid } // Or phone, depending on how they designed the PK
+      Key: { userId: uid }
     }));
 
     if (!getResult.Item) {
@@ -1200,7 +1200,7 @@ app.post('/auth/login', async (req, res) => {
       await docClient.send(new PutCommand({
         TableName: 'ridego-users',
         Item: {
-          id: uid,
+          userId: uid,
           phone: phone,
           role: role,
           createdAt: new Date().toISOString()
