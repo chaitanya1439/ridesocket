@@ -25,6 +25,7 @@ import type {
   InboundMessage,
   RideRequestPayload,
   RideRejectMessage,
+  ForceLogoutMessage,
 } from './types.js';
 
 import {
@@ -143,6 +144,7 @@ function getDistanceInKm(
 
 const riders = new Map<string, ClientInfo>();
 const drivers = new Map<string, ClientInfo>();
+const activeDevices = new Map<string, ClientInfo>();
 
 /**
  * 2. Active State Recovery
@@ -340,8 +342,29 @@ wss.on('connection', (ws: WebSocket, _request: unknown, decodedToken: DecodedTok
           id: clientId,
           isAlive: true,
           lastActivity: Date.now(),
+          ...(data.deviceId ? { deviceId: data.deviceId } : {}),
           ...(data.vehicleType ? { vehicleType: data.vehicleType } : {}),
         };
+
+        if (data.deviceId) {
+          const existingDevice = activeDevices.get(data.deviceId);
+          if (existingDevice && existingDevice.ws !== ws) {
+            console.log(`[Auth] Device Exclusivity: Forcing logout for existing session on device ${data.deviceId}`);
+            const logoutMsg: ForceLogoutMessage = { type: 'force_logout', reason: 'logged_in_elsewhere' };
+            try {
+              existingDevice.ws.send(JSON.stringify(logoutMsg));
+              // Give it a moment to send the message before closing
+              setTimeout(() => {
+                 if (existingDevice.ws.readyState === WebSocket.OPEN) {
+                   existingDevice.ws.close();
+                 }
+              }, 100);
+            } catch (e) {
+              // Ignore send errors on dead sockets
+            }
+          }
+          activeDevices.set(data.deviceId, newClient);
+        }
 
         if (data.role === 'driver') {
           // --- DynamoDB Subscription Validation ---

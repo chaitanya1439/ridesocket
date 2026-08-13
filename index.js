@@ -92,6 +92,7 @@ function getDistanceInKm(lat1, lon1, lat2, lon2) {
 // ─── In-memory state ──────────────────────────────────────────────────────────
 const riders = new Map();
 const drivers = new Map();
+const activeDevices = new Map();
 /**
  * 2. Active State Recovery
  * Persists trip state in memory so reconnecting mobile clients can be
@@ -257,8 +258,29 @@ wss.on('connection', (ws, _request, decodedToken) => {
                     id: clientId,
                     isAlive: true,
                     lastActivity: Date.now(),
+                    ...(data.deviceId ? { deviceId: data.deviceId } : {}),
                     ...(data.vehicleType ? { vehicleType: data.vehicleType } : {}),
                 };
+                if (data.deviceId) {
+                    const existingDevice = activeDevices.get(data.deviceId);
+                    if (existingDevice && existingDevice.ws !== ws) {
+                        console.log(`[Auth] Device Exclusivity: Forcing logout for existing session on device ${data.deviceId}`);
+                        const logoutMsg = { type: 'force_logout', reason: 'logged_in_elsewhere' };
+                        try {
+                            existingDevice.ws.send(JSON.stringify(logoutMsg));
+                            // Give it a moment to send the message before closing
+                            setTimeout(() => {
+                                if (existingDevice.ws.readyState === WebSocket.OPEN) {
+                                    existingDevice.ws.close();
+                                }
+                            }, 100);
+                        }
+                        catch (e) {
+                            // Ignore send errors on dead sockets
+                        }
+                    }
+                    activeDevices.set(data.deviceId, newClient);
+                }
                 if (data.role === 'driver') {
                     // --- DynamoDB Subscription Validation ---
                     (async () => {

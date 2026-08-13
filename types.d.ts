@@ -20,6 +20,8 @@ export interface ClientInfo {
     lastLocation?: Location;
     /** Driver-only: vehicle type for dispatch filtering */
     vehicleType?: string;
+    /** Unique device identifier for session exclusivity */
+    deviceId?: string;
 }
 export interface TripRecord {
     riderId: string;
@@ -69,6 +71,7 @@ export interface AuthMessage {
     role: ClientRole;
     id?: string;
     vehicleType?: string;
+    deviceId?: string;
 }
 export interface DriverStatusMessage {
     type: 'driver_status';
@@ -205,5 +208,9 @@ export interface PushTokenAckMessage {
     type: 'push_token_registered';
     success: boolean;
 }
-export type OutboundMessage = AuthSuccessMessage | SyncStateMessage | NewRideRequestMessage | RideAcceptedMessage | DriverLocationMessage | TripStatusChangedMessage | DemandHeatmapMessage | NearbyDriversMessage | OutboundChatMessage | PushTokenAckMessage;
+export interface ForceLogoutMessage {
+    type: 'force_logout';
+    reason?: string;
+}
+export type OutboundMessage = AuthSuccessMessage | SyncStateMessage | NewRideRequestMessage | RideAcceptedMessage | DriverLocationMessage | TripStatusChangedMessage | DemandHeatmapMessage | NearbyDriversMessage | OutboundChatMessage | PushTokenAckMessage | ForceLogoutMessage;
 //# sourceMappingURL=types.d.ts.map
