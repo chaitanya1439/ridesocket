@@ -9,7 +9,7 @@ import { WebSocketServer, WebSocket } from 'ws';
 import cors from 'cors';
 import jwt from 'jsonwebtoken';
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
-import { DynamoDBDocumentClient, GetCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
+import { DynamoDBDocumentClient, GetCommand, UpdateCommand, PutCommand } from "@aws-sdk/lib-dynamodb";
 
 const dbClient = new DynamoDBClient({ region: process.env.AWS_REGION || "us-east-1" });
 const docClient = DynamoDBDocumentClient.from(dbClient);
@@ -493,9 +493,14 @@ wss.on('connection', (ws: WebSocket, _request: unknown, decodedToken: DecodedTok
             return;
           }
 
-          // Vehicle Type matching: Only dispatch if driver's vehicleType matches requested vehicleType
-          if (ridePayload.vehicleType && driver.vehicleType && ridePayload.vehicleType.toLowerCase() !== driver.vehicleType.toLowerCase()) {
-            console.log(`[Dispatch] Skipped Driver ${driver.id} - vehicle type mismatch (${driver.vehicleType} != ${ridePayload.vehicleType})`);
+          // Vehicle Type matching: Only dispatch if driver's vehicleType category matches requested vehicle
+          const reqType = (ridePayload.vehicleType ?? ridePayload.vehicle ?? 'bike').toLowerCase();
+          const drvType = (driver.vehicleType ?? 'bike').toLowerCase();
+          const isRequestAuto = reqType.includes('auto');
+          const isDriverAuto = drvType.includes('auto');
+          
+          if (isRequestAuto !== isDriverAuto) {
+            console.log(`[Dispatch] Skipped Driver ${driver.id} - vehicle type mismatch (Driver: ${drvType}, Req: ${reqType})`);
             return;
           }
 
@@ -1156,22 +1161,69 @@ app.post('/api/test-notification', async (req, res) => {
  * Production lo: ikkade DB check, password verify chesukoni token issue cheyyali.
  * Ippudu: id + role isthe chalu, token vastundi.
  */
-app.post('/auth/login', (req, res) => {
-  const { id, role } = req.body as { id?: string; role?: string };
+app.post('/auth/login', async (req, res) => {
+  const { token: firebaseToken, role } = req.body as { token?: string; role?: string };
 
-  if (!id || !role || (role !== 'rider' && role !== 'driver')) {
-    res.status(400).json({ error: 'id and role (rider | driver) required' });
+  if (!firebaseToken || !role || (role !== 'rider' && role !== 'driver')) {
+    res.status(400).json({ error: 'Firebase token and role (rider | driver) required' });
     return;
   }
 
-  const token = jwt.sign(
-    { id, role },
-    JWT_SECRET,
-    { expiresIn: '7d' }
-  );
+  let decodedFirebaseToken: any;
+  try {
+    // DEV MODE ONLY: Decoding without verification because we lack serviceAccountKey.json
+    // In production, use firebase-admin.auth().verifyIdToken(firebaseToken)
+    decodedFirebaseToken = jwt.decode(firebaseToken);
+    if (!decodedFirebaseToken || !decodedFirebaseToken.phone_number) {
+      throw new Error('Invalid Firebase token or missing phone number');
+    }
+  } catch (err: any) {
+    console.error('Firebase Token Decode Error:', err);
+    res.status(401).json({ error: 'Invalid Firebase token' });
+    return;
+  }
 
-  res.json({ token, id, role });
+  const phone = decodedFirebaseToken.phone_number;
+  const uid = decodedFirebaseToken.user_id || phone;
+  
+  console.log(`[Auth Login] Checking DynamoDB for phone: ${phone} (UID: ${uid})`);
+
+  try {
+    // Check if user exists in DynamoDB
+    const getResult = await docClient.send(new GetCommand({
+      TableName: 'ridego-users',
+      Key: { id: uid } // Or phone, depending on how they designed the PK
+    }));
+
+    if (!getResult.Item) {
+      console.log(`[Auth Login] User not found in DynamoDB. Creating new record for ${uid}`);
+      await docClient.send(new PutCommand({
+        TableName: 'ridego-users',
+        Item: {
+          id: uid,
+          phone: phone,
+          role: role,
+          createdAt: new Date().toISOString()
+        }
+      }));
+    } else {
+      console.log(`[Auth Login] User ${uid} found in DynamoDB.`);
+    }
+
+    // Issue internal JWT for WebSocket Authentication
+    const internalToken = jwt.sign(
+      { id: uid, role },
+      JWT_SECRET,
+      { expiresIn: '7d' }
+    );
+
+    res.json({ token: internalToken, id: uid, role });
+  } catch (dbErr: any) {
+    console.error('[Auth Login] DynamoDB Error:', dbErr);
+    res.status(500).json({ error: 'Database operation failed' });
+  }
 });
+
 
 // ─── Nearby Drivers Broadcast ─────────────────────────────────────────────────
 
