@@ -1224,6 +1224,43 @@ app.post('/auth/login', async (req, res) => {
   }
 });
 
+/**
+ * POST /auth/refresh
+ * Refresh the JWT token so the user stays logged in.
+ */
+app.post('/auth/refresh', async (req, res) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader?.startsWith('Bearer ')) {
+    res.status(401).json({ error: 'Authorization header required' });
+    return;
+  }
+
+  const oldToken = authHeader.slice(7);
+  try {
+    // We ignore expiration to allow slightly expired tokens to be refreshed
+    const decoded = jwt.verify(oldToken, JWT_SECRET, { ignoreExpiration: true }) as any;
+    
+    if (!decoded || (!decoded.id && !decoded.userId)) {
+      throw new Error("Invalid token payload");
+    }
+
+    const uid = decoded.id || decoded.userId;
+    const role = decoded.role;
+
+    // Issue a new 7-day token
+    const newToken = jwt.sign(
+      { id: uid, role },
+      JWT_SECRET,
+      { expiresIn: '7d' }
+    );
+
+    res.json({ token: newToken });
+  } catch (err: any) {
+    console.error('[Auth Refresh] Error:', err);
+    res.status(401).json({ error: 'Invalid token' });
+  }
+});
+
 
 // ─── Nearby Drivers Broadcast ─────────────────────────────────────────────────
 
