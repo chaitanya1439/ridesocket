@@ -10,10 +10,14 @@ import { WebSocketServer, WebSocket } from 'ws';
 import cors from 'cors';
 import jwt from 'jsonwebtoken';
 import { PrismaClient } from '@prisma/client';
+import { PrismaPg } from '@prisma/adapter-pg';
+import pg from 'pg';
 import Redis from 'ioredis';
 
-process.env.DATABASE_URL = process.env.DATABASE_URL || 'postgresql://postgres:RidegoPassword123!@ridego-db.cmbwkyg28hi2.us-east-1.rds.amazonaws.com:5432/postgres';
-const prisma = new PrismaClient();
+const connectionString = process.env.DATABASE_URL || 'postgresql://postgres:RidegoPassword123!@ridego-db.cmbwkyg28hi2.us-east-1.rds.amazonaws.com:5432/postgres';
+const pool = new pg.Pool({ connectionString });
+const adapter = new PrismaPg(pool);
+const prisma = new PrismaClient({ adapter } as any);
 const redis = new (Redis as any)(process.env.REDIS_URL || 'redis://localhost:6379');
 
 async function getActiveTrip(riderId: string): Promise<TripRecord | undefined> {
