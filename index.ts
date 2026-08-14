@@ -3,6 +3,7 @@
 // by passing an explicit undici Agent as `httpAgent` in pushService.ts.
 
 
+import 'dotenv/config';
 import express from 'express';
 import { createServer } from 'http';
 import { WebSocketServer, WebSocket } from 'ws';

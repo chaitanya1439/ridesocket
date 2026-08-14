@@ -1,6 +1,7 @@
 // NOTE: The expo-server-sdk uses `import { fetch } from 'undici'` internally,
 // NOT `globalThis.fetch`. The Node built-in dispatcher incompatibility is fixed
 // by passing an explicit undici Agent as `httpAgent` in pushService.ts.
+import 'dotenv/config';
 import express from 'express';
 import { createServer } from 'http';
 import { WebSocketServer, WebSocket } from 'ws';
@@ -736,6 +737,7 @@ wss.on('connection', (ws, _request, decodedToken) => {
                     break;
                 if (data.location) {
                     client.lastLocation = data.location;
+                    await redis.geoadd('driver_locations', data.location.lng, data.location.lat, client.id);
                 }
                 // Derive the paired rider from server memory (never trust client-provided riderId blindly)
                 let targetRiderId = data.riderId;
