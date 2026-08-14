@@ -12,7 +12,10 @@ import { PrismaPg } from '@prisma/adapter-pg';
 import pg from 'pg';
 import Redis from 'ioredis';
 const connectionString = process.env.DATABASE_URL || 'postgresql://postgres:RidegoPassword123!@ridego-db.cmbwkyg28hi2.us-east-1.rds.amazonaws.com:5432/postgres';
-const pool = new pg.Pool({ connectionString });
+const pool = new pg.Pool({
+    connectionString,
+    ssl: { rejectUnauthorized: false }
+});
 const adapter = new PrismaPg(pool);
 const prisma = new PrismaClient({ adapter });
 const redis = new Redis(process.env.REDIS_URL || 'redis://localhost:6379');
