@@ -524,8 +524,8 @@ wss.on('connection', (ws, _request, decodedToken) => {
                 });
                 break;
             }
-            // ── Instant Ride Start (QR Scan) ───────────────────────────────────────
-            case 'instant_ride_start': {
+            // ── Swift Ride Start (QR Scan) ───────────────────────────────────────
+            case 'swift_ride_start': {
                 if (!client || client.role !== 'driver')
                     break;
                 const { bookingId, riderId, driverName, code, pickup, drop, vehicle, fare } = data;
@@ -560,34 +560,34 @@ wss.on('connection', (ws, _request, decodedToken) => {
                         tripRecord.id = dbTrip.id;
                     }
                     catch (e) {
-                        console.error('[Prisma] Error creating instant trip:', e);
+                        console.error('[Prisma] Error creating swift trip:', e);
                     }
                 })();
                 await setActiveTrip(riderId, tripRecord);
                 await deletePendingRequest(riderId);
-                console.log(`[instant_ride_start] Driver ${client.id} started instant ride for rider ${riderId}`);
+                console.log(`[swift_ride_start] Driver ${client.id} started swift ride for rider ${riderId}`);
                 // Notify Rider
                 const riderToNotify = riders.get(riderId);
                 let riderFound = false;
                 if (riderToNotify?.ws.readyState === WebSocket.OPEN) {
-                    riderToNotify.ws.send(JSON.stringify({ type: 'instant_ride_started', payload: tripRecord }));
+                    riderToNotify.ws.send(JSON.stringify({ type: 'swift_ride_started', payload: tripRecord }));
                     riderFound = true;
                 }
                 else {
                     riders.forEach((r, rId) => {
                         if (!riderFound && r.ws.readyState === WebSocket.OPEN && rId === riderId) {
-                            r.ws.send(JSON.stringify({ type: 'instant_ride_started', payload: tripRecord }));
+                            r.ws.send(JSON.stringify({ type: 'swift_ride_started', payload: tripRecord }));
                             riderFound = true;
                         }
                     });
                 }
                 // Notify Driver
                 if (client.ws.readyState === WebSocket.OPEN) {
-                    client.ws.send(JSON.stringify({ type: 'instant_ride_confirmed', payload: tripRecord }));
+                    client.ws.send(JSON.stringify({ type: 'swift_ride_confirmed', payload: tripRecord }));
                 }
                 // Push Notification to rider
                 notifyRiderOfAcceptance(riderId, { driverId: client.id })
-                    .catch((err) => console.error(`[Push] Error notifying rider ${riderId} of instant ride:`, err));
+                    .catch((err) => console.error(`[Push] Error notifying rider ${riderId} of swift ride:`, err));
                 break;
             }
             // ── Ride accept ────────────────────────────────────────────────────────

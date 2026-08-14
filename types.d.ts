@@ -146,8 +146,8 @@ export interface UnregisterPushTokenMessage {
 export interface PingMessage {
     type: 'ping';
 }
-export interface InstantRideStartMessage {
-    type: 'instant_ride_start';
+export interface SwiftRideStartMessage {
+    type: 'swift_ride_start';
     payload?: any;
 }
 export interface SubmitFeedbackMessage {
@@ -157,7 +157,7 @@ export interface SubmitFeedbackMessage {
     rating: string | number;
     comments?: string;
 }
-export type InboundMessage = AuthMessage | DriverStatusMessage | RideRequestMessage | RideAcceptMessage | RideRejectMessage | RideCancelMessage | LocationUpdateMessage | TripStatusUpdateMessage | ChatMessage | GetDemandHeatmapMessage | RegisterPushTokenMessage | UnregisterPushTokenMessage | PingMessage | InstantRideStartMessage | SubmitFeedbackMessage;
+export type InboundMessage = AuthMessage | DriverStatusMessage | RideRequestMessage | RideAcceptMessage | RideRejectMessage | RideCancelMessage | LocationUpdateMessage | TripStatusUpdateMessage | ChatMessage | GetDemandHeatmapMessage | RegisterPushTokenMessage | UnregisterPushTokenMessage | PingMessage | SwiftRideStartMessage | SubmitFeedbackMessage;
 export interface AuthSuccessMessage {
     type: 'auth_success';
     id: string;
