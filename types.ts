@@ -36,6 +36,7 @@ export interface ClientInfo {
 // ─── Active trip record ───────────────────────────────────────────────────────
 
 export interface TripRecord {
+  id?: string; // Database trip ID
   riderId: string;
   driverId: string;
   status: TripStatus;
@@ -186,6 +187,14 @@ export interface InstantRideStartMessage {
   payload?: any;
 }
 
+export interface SubmitFeedbackMessage {
+  type: 'submit_feedback';
+  tripId: string;
+  toUserId: string;
+  rating: string | number;
+  comments?: string;
+}
+
 export type InboundMessage =
   | AuthMessage
   | DriverStatusMessage
@@ -200,7 +209,8 @@ export type InboundMessage =
   | RegisterPushTokenMessage
   | UnregisterPushTokenMessage
   | PingMessage
-  | InstantRideStartMessage;
+  | InstantRideStartMessage
+  | SubmitFeedbackMessage;
 
 // ─── WebSocket message payloads (server → client) ────────────────────────────
 

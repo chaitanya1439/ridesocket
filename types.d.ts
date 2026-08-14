@@ -24,6 +24,7 @@ export interface ClientInfo {
     deviceId?: string;
 }
 export interface TripRecord {
+    id?: string;
     riderId: string;
     driverId: string;
     status: TripStatus;
@@ -149,7 +150,14 @@ export interface InstantRideStartMessage {
     type: 'instant_ride_start';
     payload?: any;
 }
-export type InboundMessage = AuthMessage | DriverStatusMessage | RideRequestMessage | RideAcceptMessage | RideRejectMessage | RideCancelMessage | LocationUpdateMessage | TripStatusUpdateMessage | ChatMessage | GetDemandHeatmapMessage | RegisterPushTokenMessage | UnregisterPushTokenMessage | PingMessage | InstantRideStartMessage;
+export interface SubmitFeedbackMessage {
+    type: 'submit_feedback';
+    tripId: string;
+    toUserId: string;
+    rating: string | number;
+    comments?: string;
+}
+export type InboundMessage = AuthMessage | DriverStatusMessage | RideRequestMessage | RideAcceptMessage | RideRejectMessage | RideCancelMessage | LocationUpdateMessage | TripStatusUpdateMessage | ChatMessage | GetDemandHeatmapMessage | RegisterPushTokenMessage | UnregisterPushTokenMessage | PingMessage | InstantRideStartMessage | SubmitFeedbackMessage;
 export interface AuthSuccessMessage {
     type: 'auth_success';
     id: string;

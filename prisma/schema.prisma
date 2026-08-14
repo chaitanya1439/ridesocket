@@ -1,0 +1,101 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  userId             String    @id
+  phone              String?   @unique
+  role               String?   // "rider" or "driver"
+  name               String?
+  email              String?
+  gender             String?
+  
+  // Driver specific fields
+  subscriptionStatus String?
+  subscriptionExpiry DateTime?
+  vehicleType        String?
+  vehicleNumber      String?
+  
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  // Relationships
+  documents          DriverDocument[]
+  ridesAsRider       Trip[]    @relation("RiderTrips")
+  ridesAsDriver      Trip[]    @relation("DriverTrips")
+  sentMessages       ChatMessage[] @relation("SenderMessages")
+  givenFeedback      Feedback[] @relation("GivenFeedback")
+  receivedFeedback   Feedback[] @relation("ReceivedFeedback")
+}
+
+model DriverDocument {
+  id           Int      @id @default(autoincrement())
+  driverId     String
+  documentType String   // e.g., "driving_license", "rc_book", "aadhar"
+  fileUrl      String   // URL in S3 or other storage
+  isVerified   Boolean  @default(false)
+  uploadedAt   DateTime @default(now())
+
+  driver       User     @relation(fields: [driverId], references: [userId])
+}
+
+model Trip {
+  id                  String    @id @default(uuid())
+  riderId             String
+  driverId            String?   
+  
+  pickupAddress       String?
+  pickupLat           Float?
+  pickupLng           Float?
+  
+  dropAddress         String?
+  dropLat             Float?
+  dropLng             Float?
+  
+  fare                Float?
+  distance            Float?
+  vehicleType         String?
+  otp                 String?
+  
+  // Status: "pending", "accepted", "started", "completed", "cancelled_by_rider", "cancelled_by_driver"
+  status              String    @default("pending")
+  cancellationReason  String?
+  
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  rider               User      @relation("RiderTrips", fields: [riderId], references: [userId])
+  driver              User?     @relation("DriverTrips", fields: [driverId], references: [userId])
+  
+  chatMessages        ChatMessage[]
+  feedbacks           Feedback[]
+}
+
+model ChatMessage {
+  id        String   @id @default(uuid())
+  tripId    String
+  senderId  String
+  text      String
+  createdAt DateTime @default(now())
+
+  trip      Trip     @relation(fields: [tripId], references: [id])
+  sender    User     @relation("SenderMessages", fields: [senderId], references: [userId])
+}
+
+model Feedback {
+  id          String   @id @default(uuid())
+  tripId      String
+  fromUserId  String
+  toUserId    String
+  rating      Int      
+  comments    String?
+  createdAt   DateTime @default(now())
+
+  trip        Trip     @relation(fields: [tripId], references: [id])
+  fromUser    User     @relation("GivenFeedback", fields: [fromUserId], references: [userId])
+  toUser      User     @relation("ReceivedFeedback", fields: [toUserId], references: [userId])
+}
