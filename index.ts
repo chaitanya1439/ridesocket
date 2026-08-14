@@ -12,6 +12,7 @@ import jwt from 'jsonwebtoken';
 import { PrismaClient } from '@prisma/client';
 import Redis from 'ioredis';
 
+process.env.DATABASE_URL = process.env.DATABASE_URL || 'postgresql://postgres:RidegoPassword123!@ridego-db.cmbwkyg28hi2.us-east-1.rds.amazonaws.com:5432/postgres';
 const prisma = new PrismaClient();
 const redis = new (Redis as any)(process.env.REDIS_URL || 'redis://localhost:6379');
 
