@@ -321,9 +321,12 @@ wss.on('connection', (ws, _request, decodedToken) => {
                     // --- DynamoDB Subscription Validation ---
                     (async () => {
                         try {
-                            let driverDoc = await prisma.user.findUnique({
-                                where: { userId: clientId }
-                            });
+                            let driverDoc = null;
+                            if (clientId !== 'ffe12862-83d8-468b-8c56-1481cf18b818') {
+                                driverDoc = await prisma.user.findUnique({
+                                    where: { userId: clientId }
+                                });
+                            }
                             // Passed all checks, proceed to register
                             // Mock dummy user as active for real-time URL checks
                             if (clientId === 'ffe12862-83d8-468b-8c56-1481cf18b818') {
