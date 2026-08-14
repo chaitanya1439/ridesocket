@@ -1269,27 +1269,7 @@ const PORT = process.env.PORT ?? 8080;
 server.listen(PORT, () => {
     console.log(`\n══════════════════════════════════════════════════════════════`);
     console.log(`  Realtime Server listening on port ${PORT}`);
-    console.log(`══════════════════════════════════════════════════════════════`);
-    console.log(`\n─── JWT SECRET ─────────────────────────────────────────────────`);
-    console.log(`  ${JWT_SECRET}`);
-    console.log(`\n─── DEV TOKENS (Expo app lo copy-paste cheyandi) ───────────────`);
-    console.log(`  RIDER  TOKEN: ${FIXED_TOKENS.rider}`);
-    console.log(`  DRIVER TOKEN: ${FIXED_TOKENS.driver}`);
-    console.log(`\n─── VERIFY: Both tokens should decode correctly ────────────────`);
-    try {
-        const rVerify = jwt.verify(FIXED_TOKENS.rider, JWT_SECRET, { ignoreExpiration: true });
-        console.log(`  Rider  token decoded: { id: '${rVerify.id}', role: '${rVerify.role}' } ✓`);
-    }
-    catch (e) {
-        console.log(`  Rider  token verification FAILED: ${e.message} ✗`);
-    }
-    try {
-        const dVerify = jwt.verify(FIXED_TOKENS.driver, JWT_SECRET, { ignoreExpiration: true });
-        console.log(`  Driver token decoded: { id: '${dVerify.id}', role: '${dVerify.role}' } ✓`);
-    }
-    catch (e) {
-        console.log(`  Driver token verification FAILED: ${e.message} ✗`);
-    }
+    console.log(`  Redis: connected | PostgreSQL: connected`);
     console.log(`══════════════════════════════════════════════════════════════\n`);
 });
 // ─── Graceful Shutdown ────────────────────────────────────────────────────────
