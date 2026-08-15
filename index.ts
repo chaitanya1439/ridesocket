@@ -904,24 +904,22 @@ wss.on('connection', (ws: WebSocket, _request: unknown, decodedToken: DecodedTok
           ...data.payload,
         };
 
-        (async () => {
-          try {
-            const dbTrip = await prisma.trip.create({
-              data: {
-                riderId: data.riderId,
-                driverId: client.id,
-                status: 'accepted',
-                otp: otp,
-                fare: data.payload?.fare ? parseFloat(String(data.payload?.fare)) : null,
-                distance: data.payload?.distance ? parseFloat(String(data.payload?.distance)) : null,
-                vehicleType: data.payload?.vehicleType ?? data.payload?.vehicle ?? null,
-              }
-            });
-            tripRecord.id = dbTrip.id;
-          } catch (e) {
-            console.error('[Prisma] Error creating accepted trip:', e);
-          }
-        })();
+        try {
+          const dbTrip = await prisma.trip.create({
+            data: {
+              riderId: data.riderId,
+              driverId: client.id,
+              status: 'accepted',
+              otp: otp,
+              fare: data.payload?.fare ? parseFloat(String(data.payload?.fare)) : null,
+              distance: data.payload?.distance ? parseFloat(String(data.payload?.distance)) : null,
+              vehicleType: data.payload?.vehicleType ?? data.payload?.vehicle ?? null,
+            }
+          });
+          tripRecord.id = dbTrip.id;
+        } catch (e) {
+          console.error('[Prisma] Error creating accepted trip:', e);
+        }
 
         await setActiveTrip(data.riderId, tripRecord);
         await deletePendingRequest(data.riderId);
