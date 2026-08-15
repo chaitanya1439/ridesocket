@@ -215,6 +215,26 @@ app.get('/api/driver/history/:driverId', async (req, res) => {
   }
 });
 
+app.get('/api/rider/stats/:userId', async (req, res) => {
+  try {
+    const { userId } = req.params;
+    
+    const [ridesCount, moneySaved, parcelsCount] = await Promise.all([
+      prisma.trip.count({ where: { riderId: userId, status: 'completed' } }),
+      prisma.trip.aggregate({ _sum: { fare: true }, where: { riderId: userId, status: 'completed' } }),
+      prisma.trip.count({ where: { riderId: userId, vehicleType: 'Parcel' } }) // Assuming Parcel is a vehicleType or similar
+    ]);
+
+    // Format money saved logic or apply 10% assumption if you want
+    const saved = moneySaved._sum.fare ? moneySaved._sum.fare * 0.1 : 0; 
+    
+    res.json({ success: true, stats: { rides: ridesCount, saved, parcels: parcelsCount } });
+  } catch (error: any) {
+    console.error('[Stats API] Error:', error);
+    res.status(500).json({ success: false, error: 'Failed to fetch stats' });
+  }
+});
+
 app.get('/api/driver/stats/:driverId', async (req, res) => {
   try {
     const { driverId } = req.params;
