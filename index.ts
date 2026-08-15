@@ -215,6 +215,40 @@ app.get('/api/driver/history/:driverId', async (req, res) => {
   }
 });
 
+app.get('/api/driver/stats/:driverId', async (req, res) => {
+  try {
+    const { driverId } = req.params;
+    
+    // Get start of today
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+
+    const [driver, totalRides, todayTrips] = await Promise.all([
+      prisma.user.findUnique({ where: { userId: driverId } }),
+      prisma.trip.count({ where: { driverId, status: 'completed' } }),
+      prisma.trip.findMany({
+        where: { 
+          driverId, 
+          status: 'completed',
+          createdAt: { gte: startOfToday } 
+        },
+        select: { fare: true }
+      })
+    ]);
+
+    const todayEarnings = todayTrips.reduce((sum: number, trip: any) => sum + (trip.fare || 0), 0);
+
+    res.json({
+      totalRides,
+      todayEarnings,
+      subscriptionStatus: driver?.subscriptionStatus || 'Inactive',
+      subscriptionExpiry: driver?.subscriptionExpiry || null
+    });
+  } catch (error) {
+    console.error('[Stats API] Driver error:', error);
+    res.status(500).json({ error: 'Failed to fetch driver stats' });
+  }
+});
 const server = createServer(app);
 
 // 1. Bandwidth Efficiency: Enable per-message deflate compression.
@@ -807,17 +841,23 @@ wss.on('connection', (ws: WebSocket, _request: unknown, decodedToken: DecodedTok
         let vehicleNumber: string = '';
         let riderPhone: string = '';
         let riderName: string = 'Rider';
+        let driverRating: number = 0;
+        let driverRideCount: number = 0;
         
         try {
-          const [driverDoc, riderDoc] = await Promise.all([
+          const [driverDoc, riderDoc, avgRating, rideCount] = await Promise.all([
             prisma.user.findUnique({ where: { userId: client.id } }),
-            prisma.user.findUnique({ where: { userId: data.riderId } })
+            prisma.user.findUnique({ where: { userId: data.riderId } }),
+            prisma.feedback.aggregate({ _avg: { rating: true }, where: { toUserId: client.id } }),
+            prisma.trip.count({ where: { driverId: client.id, status: 'completed' } })
           ]);
           driverPhone = driverDoc?.phone || '';
           driverName = driverDoc?.name || 'Driver';
           vehicleNumber = driverDoc?.vehicleNumber || ''; 
           riderPhone = riderDoc?.phone || '';
           riderName = riderDoc?.name || 'Rider';
+          driverRating = avgRating?._avg?.rating ? Number(avgRating._avg.rating.toFixed(1)) : 0;
+          driverRideCount = rideCount || 0;
         } catch(e) {
           console.error('[Prisma] Error fetching user details for ride_accept:', e);
           driverName = 'Driver';
@@ -834,6 +874,8 @@ wss.on('connection', (ws: WebSocket, _request: unknown, decodedToken: DecodedTok
           driverName,
           driverPhone,
           vehicleNumber,
+          driverRating,
+          driverRideCount,
           riderName,
           riderPhone,
           ...data.payload,
