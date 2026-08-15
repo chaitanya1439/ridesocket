@@ -1504,10 +1504,11 @@ app.post('/auth/login', async (req, res) => {
     });
 
     let isNewUser = false;
+    let userData = existingUser;
     if (!existingUser) {
       isNewUser = true;
       console.log(`[Auth Login] User not found in DB. Creating new record for ${uid}`);
-      await prisma.user.create({
+      userData = await prisma.user.create({
         data: {
           userId: uid,
           phone: phone,
@@ -1516,6 +1517,10 @@ app.post('/auth/login', async (req, res) => {
       });
     } else {
       console.log(`[Auth Login] User ${uid} found in DB.`);
+      // If the user hasn't completed their profile yet, consider them new
+      if (!existingUser.name) {
+        isNewUser = true;
+      }
     }
 
     // Issue internal JWT for WebSocket Authentication
@@ -1525,7 +1530,7 @@ app.post('/auth/login', async (req, res) => {
       { expiresIn: '7d' }
     );
 
-    res.json({ token: internalToken, id: uid, role, isNewUser });
+    res.json({ token: internalToken, id: uid, role, isNewUser, user: userData });
   } catch (dbErr: any) {
     console.error('[Auth Login] DB Error:', dbErr);
     res.status(500).json({ error: 'Database operation failed' });
