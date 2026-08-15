@@ -741,6 +741,23 @@ wss.on('connection', (ws: WebSocket, _request: unknown, decodedToken: DecodedTok
 
         // Generate a 4-digit OTP for the ride
         const otp = Math.floor(1000 + Math.random() * 9000).toString();
+        
+        // Fetch real details from DB so they can call each other
+        let driverPhone, driverName, vehicleNumber, riderPhone, riderName;
+        try {
+          const [driverDoc, riderDoc] = await Promise.all([
+            prisma.user.findUnique({ where: { userId: client.id } }),
+            prisma.user.findUnique({ where: { userId: data.riderId } })
+          ]);
+          driverPhone = driverDoc?.phone || '';
+          driverName = driverDoc?.name || client.id;
+          vehicleNumber = driverDoc?.vehicleNumber || ''; 
+          riderPhone = riderDoc?.phone || '';
+          riderName = riderDoc?.name || 'Rider';
+        } catch(e) {
+          console.error('[Prisma] Error fetching user details for ride_accept:', e);
+          driverName = client.id;
+        }
 
         const tripRecord: TripRecord = {
           riderId: data.riderId,
@@ -749,7 +766,11 @@ wss.on('connection', (ws: WebSocket, _request: unknown, decodedToken: DecodedTok
           otp,
           driverLat: client.lastLocation?.lat,
           driverLng: client.lastLocation?.lng,
-          driverName: client.id, // Use driver ID as name if name not available
+          driverName: driverName || client.id,
+          driverPhone: driverPhone || '',
+          vehicleNumber: vehicleNumber || '',
+          riderName: riderName || 'Rider',
+          riderPhone: riderPhone || '',
           ...data.payload,
         };
 
