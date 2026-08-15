@@ -13,6 +13,7 @@ import { PrismaClient } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
 import pg from 'pg';
 import Redis from 'ioredis';
+import crypto from 'crypto';
 
 const connectionString = process.env.DATABASE_URL || 'postgresql://postgres:RidegoPassword123!@ridego-db.cmbwkyg28hi2.us-east-1.rds.amazonaws.com:5432/postgres';
 const pool = new pg.Pool({ 
@@ -739,8 +740,10 @@ wss.on('connection', (ws: WebSocket, _request: unknown, decodedToken: DecodedTok
 
         client.status = 'busy';
 
-        // Generate a 4-digit OTP for the ride
-        const otp = Math.floor(1000 + Math.random() * 9000).toString();
+        // Generate a STATIC 4-digit OTP for the ride based on riderId
+        // This ensures the user always gets the same OTP and same QR scanner code
+        const hash = crypto.createHash('sha256').update(data.riderId).digest('hex');
+        const otp = (parseInt(hash.substring(0, 8), 16) % 9000 + 1000).toString();
         
         // Fetch real details from DB so they can call each other
         let driverPhone, driverName, vehicleNumber, riderPhone, riderName;
