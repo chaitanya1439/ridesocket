@@ -837,6 +837,16 @@ wss.on('connection', (ws: WebSocket, _request: unknown, decodedToken: DecodedTok
             }));
           }
         });
+
+        // Send a success confirmation back to the driver who accepted it,
+        // so they get the rider's phone number and the exact static OTP generated.
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({
+            type: 'sync_state',
+            payload: tripRecord
+          }));
+        }
+
         break;
       }
 
