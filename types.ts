@@ -50,6 +50,7 @@ export interface TripRecord {
   driverRating?: number;
   driverRideCount?: number;
   riderName?: string;
+  profileImageUrl?: string;
   otp?: string;
   [key: string]: unknown; // allow spread of additional ride-request fields
 }

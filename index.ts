@@ -843,6 +843,7 @@ wss.on('connection', (ws: WebSocket, _request: unknown, decodedToken: DecodedTok
         let riderName: string = 'Rider';
         let driverRating: number = 0;
         let driverRideCount: number = 0;
+        let profileImageUrl: string = '';
         
         try {
           const [driverDoc, riderDoc, avgRating, rideCount] = await Promise.all([
@@ -854,6 +855,7 @@ wss.on('connection', (ws: WebSocket, _request: unknown, decodedToken: DecodedTok
           driverPhone = driverDoc?.phone || '';
           driverName = driverDoc?.name || 'Driver';
           vehicleNumber = driverDoc?.vehicleNumber || ''; 
+          profileImageUrl = driverDoc?.profileImageUrl || '';
           riderPhone = riderDoc?.phone || '';
           riderName = riderDoc?.name || 'Rider';
           driverRating = avgRating?._avg?.rating ? Number(avgRating._avg.rating.toFixed(1)) : 0;
@@ -878,6 +880,7 @@ wss.on('connection', (ws: WebSocket, _request: unknown, decodedToken: DecodedTok
           driverRideCount,
           riderName,
           riderPhone,
+          profileImageUrl,
           ...data.payload,
         };
 

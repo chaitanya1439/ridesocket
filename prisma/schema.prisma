@@ -20,6 +20,10 @@ model User {
   vehicleType        String?
   vehicleNumber      String?
   
+  dob                String?
+  languages          String?
+  profileImageUrl    String?
+  
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
 
