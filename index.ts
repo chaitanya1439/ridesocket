@@ -716,6 +716,21 @@ wss.on('connection', (ws: WebSocket, _request: unknown, decodedToken: DecodedTok
       case 'ride_accept': {
         if (!client || client.role !== 'driver') break;
 
+        // ── Atomic lock: prevent multiple drivers accepting the same ride ──
+        // SET NX returns 'OK' only for the FIRST caller; subsequent ones get null.
+        const lockKey = `lock:ride_accept:${data.riderId}`;
+        const lockAcquired = await redis.set(lockKey, client.id, 'NX', 'EX', 30);
+
+        if (!lockAcquired) {
+          console.log(`[ride_accept] BLOCKED — Ride for ${data.riderId} already accepted by another driver. Driver ${client.id} was too late.`);
+          client.status = 'available'; // reset back to available
+          ws.send(JSON.stringify({
+            type: 'ride_request_cancelled',
+            payload: { riderId: data.riderId, reason: 'accepted_by_another' },
+          }));
+          break;
+        }
+
         client.status = 'busy';
 
         // Generate a 4-digit OTP for the ride
@@ -850,6 +865,7 @@ wss.on('connection', (ws: WebSocket, _request: unknown, decodedToken: DecodedTok
             client.status = 'available';
           }
           await deleteActiveTrip(targetRiderId);
+          await redis.del(`lock:ride_accept:${targetRiderId}`);
         } else {
           // If the ride was still pending
           if ((!!(await getPendingRequest(targetRiderId)))) {
@@ -930,6 +946,7 @@ wss.on('connection', (ws: WebSocket, _request: unknown, decodedToken: DecodedTok
         if (data.status === 'completed' || data.status === 'cancelled') {
           client.status = 'available';
           await deleteActiveTrip(data.riderId);
+          await redis.del(`lock:ride_accept:${data.riderId}`);
         }
 
         // Push notification to rider about trip status changes
