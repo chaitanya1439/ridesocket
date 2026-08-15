@@ -176,8 +176,8 @@ app.get('/api/rider/history/:userId', async (req, res) => {
       status: t.status,
       date: new Date(t.createdAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }),
       time: new Date(t.createdAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }),
-      pickup: "Pickup Location", // Hardcoded fallback for now
-      drop: "Drop Location",
+      pickup: t.pickupAddress || "Pickup Location",
+      drop: t.dropAddress || "Drop Location",
       fare: t.fare || 0,
     }));
     
@@ -201,8 +201,8 @@ app.get('/api/driver/history/:driverId', async (req, res) => {
     const formatted = trips.map((t: any) => ({
       id: t.id,
       date: new Date(t.createdAt).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }),
-      pickup: "Pickup Location", // Hardcoded fallback for now, as address might not be in DB
-      drop: "Drop Location", 
+      pickup: t.pickupAddress || "Pickup Location",
+      drop: t.dropAddress || "Drop Location", 
       fare: t.fare || 0,
       status: t.status,
       timestamp: new Date(t.createdAt).getTime()
@@ -226,7 +226,7 @@ app.get('/api/rider/stats/:userId', async (req, res) => {
     ]);
 
     // Format money saved logic or apply 10% assumption if you want
-    const saved = moneySaved._sum.fare ? moneySaved._sum.fare * 0.1 : 0; 
+    const saved = moneySaved._sum.fare ? Number((moneySaved._sum.fare * 0.1).toFixed(2)) : 0; 
     
     res.json({ success: true, stats: { rides: ridesCount, saved, parcels: parcelsCount } });
   } catch (error: any) {
@@ -914,6 +914,12 @@ wss.on('connection', (ws: WebSocket, _request: unknown, decodedToken: DecodedTok
               fare: data.payload?.fare ? parseFloat(String(data.payload?.fare)) : null,
               distance: data.payload?.distance ? parseFloat(String(data.payload?.distance)) : null,
               vehicleType: data.payload?.vehicleType ?? data.payload?.vehicle ?? null,
+              pickupAddress: data.payload?.pickupAddress ? String(data.payload.pickupAddress) : null,
+              pickupLat: data.payload?.pickupLat ? parseFloat(String(data.payload?.pickupLat)) : null,
+              pickupLng: data.payload?.pickupLng ? parseFloat(String(data.payload?.pickupLng)) : null,
+              dropAddress: data.payload?.dropAddress ? String(data.payload.dropAddress) : null,
+              dropLat: data.payload?.dropLat ? parseFloat(String(data.payload?.dropLat)) : null,
+              dropLng: data.payload?.dropLng ? parseFloat(String(data.payload?.dropLng)) : null,
             }
           });
           tripRecord.id = dbTrip.id;
