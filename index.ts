@@ -159,6 +159,62 @@ app.post('/buy-subscription', async (req, res) => {
   }
 });
 
+// History API Endpoints
+app.get('/api/rider/history/:userId', async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const trips = await prisma.trip.findMany({
+      where: { riderId: userId, status: { in: ['completed', 'cancelled'] } },
+      orderBy: { createdAt: 'desc' },
+      take: 20
+    });
+    
+    // Map to the frontend expected format
+    const formatted = trips.map((t: any) => ({
+      id: t.id,
+      vehicle: t.vehicleType || "Bike",
+      status: t.status,
+      date: new Date(t.createdAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }),
+      time: new Date(t.createdAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }),
+      pickup: "Pickup Location", // Hardcoded fallback for now
+      drop: "Drop Location",
+      fare: t.fare || 0,
+    }));
+    
+    res.json(formatted);
+  } catch (error) {
+    console.error('[History API] Rider error:', error);
+    res.status(500).json([]);
+  }
+});
+
+app.get('/api/driver/history/:driverId', async (req, res) => {
+  try {
+    const { driverId } = req.params;
+    const trips = await prisma.trip.findMany({
+      where: { driverId: driverId, status: { in: ['completed', 'cancelled'] } },
+      orderBy: { createdAt: 'desc' },
+      take: 20
+    });
+    
+    // Map to the frontend expected format
+    const formatted = trips.map((t: any) => ({
+      id: t.id,
+      date: new Date(t.createdAt).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }),
+      pickup: "Pickup Location", // Hardcoded fallback for now, as address might not be in DB
+      drop: "Drop Location", 
+      fare: t.fare || 0,
+      status: t.status,
+      timestamp: new Date(t.createdAt).getTime()
+    }));
+    
+    res.json(formatted);
+  } catch (error) {
+    console.error('[History API] Driver error:', error);
+    res.status(500).json([]);
+  }
+});
+
 const server = createServer(app);
 
 // 1. Bandwidth Efficiency: Enable per-message deflate compression.
@@ -746,20 +802,26 @@ wss.on('connection', (ws: WebSocket, _request: unknown, decodedToken: DecodedTok
         const otp = (parseInt(hash.substring(0, 8), 16) % 9000 + 1000).toString();
         
         // Fetch real details from DB so they can call each other
-        let driverPhone, driverName, vehicleNumber, riderPhone, riderName;
+        let driverPhone: string = '';
+        let driverName: string = 'Driver';
+        let vehicleNumber: string = '';
+        let riderPhone: string = '';
+        let riderName: string = 'Rider';
+        
         try {
           const [driverDoc, riderDoc] = await Promise.all([
             prisma.user.findUnique({ where: { userId: client.id } }),
             prisma.user.findUnique({ where: { userId: data.riderId } })
           ]);
           driverPhone = driverDoc?.phone || '';
-          driverName = driverDoc?.name || client.id;
+          driverName = driverDoc?.name || 'Driver';
           vehicleNumber = driverDoc?.vehicleNumber || ''; 
           riderPhone = riderDoc?.phone || '';
           riderName = riderDoc?.name || 'Rider';
         } catch(e) {
           console.error('[Prisma] Error fetching user details for ride_accept:', e);
-          driverName = client.id;
+          driverName = 'Driver';
+          riderName = 'Rider';
         }
 
         const tripRecord: TripRecord = {
@@ -769,11 +831,11 @@ wss.on('connection', (ws: WebSocket, _request: unknown, decodedToken: DecodedTok
           otp,
           driverLat: client.lastLocation?.lat,
           driverLng: client.lastLocation?.lng,
-          driverName: driverName || client.id,
-          driverPhone: driverPhone || '',
-          vehicleNumber: vehicleNumber || '',
-          riderName: riderName || 'Rider',
-          riderPhone: riderPhone || '',
+          driverName,
+          driverPhone,
+          vehicleNumber,
+          riderName,
+          riderPhone,
           ...data.payload,
         };
 
@@ -1008,7 +1070,7 @@ wss.on('connection', (ws: WebSocket, _request: unknown, decodedToken: DecodedTok
       case 'chat_message': {
         if (!client) break;
 
-        const targetId = data.to ?? data.toId;
+        const targetId = data.to ?? data.toId ?? data.recipientId;
         const textMsg = data.message ?? data.text ?? '';
 
         if (targetId) {
@@ -1029,11 +1091,11 @@ wss.on('connection', (ws: WebSocket, _request: unknown, decodedToken: DecodedTok
             const timestamp = new Date().toISOString();
             recipient.ws.send(
               JSON.stringify({
-                type: 'CHAT_MESSAGE',
+                type: 'chat_message',
                 from: client.id,
                 message: textMsg,
                 timestamp,
-                payload: { fromId: client.id, text: textMsg, timestamp },
+                payload: { fromId: client.id, senderId: client.id, text: textMsg, timestamp },
               }),
             );
           }

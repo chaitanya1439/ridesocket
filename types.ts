@@ -154,6 +154,7 @@ export interface ChatMessage {
   /** Recipient ID */
   to?: string;
   toId?: string;
+  recipientId?: string;
   message?: string;
   text?: string;
 }
