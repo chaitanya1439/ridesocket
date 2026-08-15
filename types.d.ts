@@ -35,6 +35,8 @@ export interface TripRecord {
     vehicle?: string;
     vehicleType?: string;
     distance?: number;
+    driverRating?: number;
+    driverRideCount?: number;
     riderName?: string;
     otp?: string;
     [key: string]: unknown;
@@ -123,6 +125,7 @@ export interface ChatMessage {
     /** Recipient ID */
     to?: string;
     toId?: string;
+    recipientId?: string;
     message?: string;
     text?: string;
 }
@@ -146,8 +149,8 @@ export interface UnregisterPushTokenMessage {
 export interface PingMessage {
     type: 'ping';
 }
-export interface SwiftRideStartMessage {
-    type: 'swift_ride_start';
+export interface TatkalRideStartMessage {
+    type: 'tatkal_ride_start';
     payload?: any;
 }
 export interface SubmitFeedbackMessage {
@@ -157,7 +160,7 @@ export interface SubmitFeedbackMessage {
     rating: string | number;
     comments?: string;
 }
-export type InboundMessage = AuthMessage | DriverStatusMessage | RideRequestMessage | RideAcceptMessage | RideRejectMessage | RideCancelMessage | LocationUpdateMessage | TripStatusUpdateMessage | ChatMessage | GetDemandHeatmapMessage | RegisterPushTokenMessage | UnregisterPushTokenMessage | PingMessage | SwiftRideStartMessage | SubmitFeedbackMessage;
+export type InboundMessage = AuthMessage | DriverStatusMessage | RideRequestMessage | RideAcceptMessage | RideRejectMessage | RideCancelMessage | LocationUpdateMessage | TripStatusUpdateMessage | ChatMessage | GetDemandHeatmapMessage | RegisterPushTokenMessage | UnregisterPushTokenMessage | PingMessage | TatkalRideStartMessage | SubmitFeedbackMessage;
 export interface AuthSuccessMessage {
     type: 'auth_success';
     id: string;

@@ -185,8 +185,8 @@ export interface PingMessage {
   type: 'ping';
 }
 
-export interface SwiftRideStartMessage {
-  type: 'swift_ride_start';
+export interface TatkalRideStartMessage {
+  type: 'tatkal_ride_start';
   payload?: any;
 }
 
@@ -212,7 +212,7 @@ export type InboundMessage =
   | RegisterPushTokenMessage
   | UnregisterPushTokenMessage
   | PingMessage
-  | SwiftRideStartMessage
+  | TatkalRideStartMessage
   | SubmitFeedbackMessage;
 
 // ─── WebSocket message payloads (server → client) ────────────────────────────
