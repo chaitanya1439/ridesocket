@@ -1300,6 +1300,58 @@ app.get('/api/vehicle-types', (_req, res) => {
  *
  * Auth: Bearer token in Authorization header
  */
+
+/**
+ * Background Location Update API
+ * Receives REST POST with location data from background drivers.
+ */
+app.post('/api/location', async (req, res) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader?.startsWith('Bearer ')) {
+    res.status(401).json({ error: 'Authorization header required' });
+    return;
+  }
+  const token = authHeader.split(' ')[1];
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET) as any;
+    if (!decoded.id || !decoded.role || decoded.role !== 'driver') {
+      res.status(401).json({ error: 'Invalid driver token' });
+      return;
+    }
+    
+    const { location, riderId } = req.body;
+    if (!location || typeof location.lat !== 'number' || typeof location.lng !== 'number') {
+      res.status(400).json({ error: 'Invalid location payload' });
+      return;
+    }
+
+    // Update Redis
+    await redis.geoadd('driver_locations', location.lng, location.lat, decoded.id);
+    
+    // Broadcast to rider
+    let targetRiderId: string | undefined = riderId;
+    if (!targetRiderId) {
+      const rId = await redis.get(`drivertrip:${decoded.id}`);
+      if (rId) targetRiderId = rId;
+    }
+
+    if (targetRiderId) {
+      const targetRider = riders.get(targetRiderId);
+      if (targetRider?.ws.readyState === WebSocket.OPEN) {
+        targetRider.ws.send(JSON.stringify({
+          type: 'driver_location',
+          payload: { driverId: decoded.id, location }
+        }));
+      }
+    }
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[API] Location Update error:', err);
+    res.status(401).json({ error: 'Unauthorized' });
+  }
+});
+
 app.post('/api/request-ride', async (req, res) => {
   // Authenticate the request
   const authHeader = req.headers.authorization;
