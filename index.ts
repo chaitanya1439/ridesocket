@@ -1636,7 +1636,12 @@ app.post('/auth/update-profile', async (req, res) => {
     const decoded = jwt.verify(token, JWT_SECRET) as any;
     const uid = decoded.id || decoded.userId;
 
-    const { name, email, gender, dob, languages, vehicleType, vehicleNumber, subscriptionStatus, subscriptionExpiry } = req.body;
+    const { 
+      name, email, gender, dob, languages, 
+      vehicleType, vehicleNumber, 
+      subscriptionStatus, subscriptionExpiry, subscriptionExpiryDate,
+      subscriptionPlanId, subscriptionEarningLimit 
+    } = req.body;
 
     const updateData: any = {};
     if (name !== undefined) updateData.name = name;
@@ -1647,7 +1652,10 @@ app.post('/auth/update-profile', async (req, res) => {
     if (vehicleType !== undefined) updateData.vehicleType = vehicleType;
     if (vehicleNumber !== undefined) updateData.vehicleNumber = vehicleNumber;
     if (subscriptionStatus !== undefined) updateData.subscriptionStatus = subscriptionStatus;
-    if (subscriptionExpiry !== undefined) updateData.subscriptionExpiry = new Date(subscriptionExpiry);
+    const expiry = subscriptionExpiry || subscriptionExpiryDate;
+    if (expiry !== undefined) updateData.subscriptionExpiry = new Date(expiry);
+    if (subscriptionPlanId !== undefined) updateData.subscriptionPlanId = subscriptionPlanId;
+    if (subscriptionEarningLimit !== undefined) updateData.subscriptionEarningLimit = subscriptionEarningLimit;
 
     const updatedUser = await prisma.user.update({
       where: { userId: uid },

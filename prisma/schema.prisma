@@ -15,10 +15,12 @@ model User {
   gender             String?
   
   // Driver specific fields
-  subscriptionStatus String?
-  subscriptionExpiry DateTime?
-  vehicleType        String?
-  vehicleNumber      String?
+  subscriptionStatus       String?
+  subscriptionExpiry       DateTime?
+  subscriptionPlanId       String?
+  subscriptionEarningLimit Int?
+  vehicleType              String?
+  vehicleNumber            String?
   
   dob                String?
   languages          String?
