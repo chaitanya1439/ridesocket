@@ -1580,20 +1580,22 @@ app.post('/auth/update-profile', async (req, res) => {
     const decoded = jwt.verify(token, JWT_SECRET) as any;
     const uid = decoded.id || decoded.userId;
 
-    const { name, email, gender } = req.body;
+    const { name, email, gender, dob, languages, vehicleType, vehicleNumber, subscriptionStatus, subscriptionExpiry } = req.body;
 
-    if (!name || !email || !gender) {
-      res.status(400).json({ error: 'Name, email, and gender are required' });
-      return;
-    }
+    const updateData: any = {};
+    if (name !== undefined) updateData.name = name;
+    if (email !== undefined) updateData.email = email;
+    if (gender !== undefined) updateData.gender = gender;
+    if (dob !== undefined) updateData.dob = dob;
+    if (languages !== undefined) updateData.languages = languages;
+    if (vehicleType !== undefined) updateData.vehicleType = vehicleType;
+    if (vehicleNumber !== undefined) updateData.vehicleNumber = vehicleNumber;
+    if (subscriptionStatus !== undefined) updateData.subscriptionStatus = subscriptionStatus;
+    if (subscriptionExpiry !== undefined) updateData.subscriptionExpiry = new Date(subscriptionExpiry);
 
-    await prisma.user.update({
+    const updatedUser = await prisma.user.update({
       where: { userId: uid },
-      data: {
-        name: name,
-        email: email,
-        gender: gender
-      }
+      data: updateData
     });
 
     res.json({
