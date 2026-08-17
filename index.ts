@@ -777,6 +777,7 @@ wss.on('connection', (ws: WebSocket, _request: unknown, decodedToken: DecodedTok
           drop,
           vehicle,
           fare,
+          type: 'tatkal_ride',
         };
 
         (async () => {
