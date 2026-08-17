@@ -1312,8 +1312,12 @@ app.post('/api/location', async (req, res) => {
     return;
   }
   const token = authHeader.split(' ')[1];
+  if (!token) {
+    res.status(401).json({ error: 'Token missing' });
+    return;
+  }
   try {
-    const decoded = jwt.verify(token, JWT_SECRET) as any;
+    const decoded = jwt.verify(token, JWT_SECRET as string) as any;
     if (!decoded.id || !decoded.role || decoded.role !== 'driver') {
       res.status(401).json({ error: 'Invalid driver token' });
       return;
