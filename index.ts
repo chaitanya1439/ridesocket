@@ -164,22 +164,25 @@ app.get('/api/rider/history/:userId', async (req, res) => {
   try {
     const { userId } = req.params;
     const trips = await prisma.trip.findMany({
-      where: { riderId: userId, status: { in: ['completed', 'cancelled'] } },
+      where: { riderId: userId, status: { in: ['completed', 'cancelled', 'scheduled'] } },
       orderBy: { createdAt: 'desc' },
       take: 20
     });
     
     // Map to the frontend expected format
-    const formatted = trips.map((t: any) => ({
-      id: t.id,
-      vehicle: t.vehicleType || "Bike",
-      status: t.status,
-      date: new Date(t.createdAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }),
-      time: new Date(t.createdAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }),
-      pickup: t.pickupAddress || "Pickup Location",
-      drop: t.dropAddress || "Drop Location",
-      fare: t.fare || 0,
-    }));
+    const formatted = trips.map((t: any) => {
+      const displayDate = t.scheduledTime ? new Date(t.scheduledTime) : new Date(t.createdAt);
+      return {
+        id: t.id,
+        vehicle: t.vehicleType || "Bike",
+        status: t.status,
+        date: displayDate.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }),
+        time: displayDate.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }),
+        pickup: t.pickupAddress || "Pickup Location",
+        drop: t.dropAddress || "Drop Location",
+        fare: t.fare || 0,
+      };
+    });
     
     res.json(formatted);
   } catch (error) {
