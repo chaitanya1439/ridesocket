@@ -1575,27 +1575,32 @@ setInterval(async () => {
 
       // Notify nearby available drivers
       let notifiedCount = 0;
-      for (const [_, driver] of Object.entries(connectedClients)) {
-        if (driver.role !== 'driver' || driver.status !== 'available') continue;
+      drivers.forEach((driver) => {
+        if (driver.status !== 'available') return;
         
         if (driver.lastLocation && trip.pickupLat && trip.pickupLng) {
           const dist = getDistanceInKm(trip.pickupLat, trip.pickupLng, driver.lastLocation.lat, driver.lastLocation.lng);
-          if (dist > MAX_DRIVER_MATCH_DISTANCE_KM) continue;
+          if (dist > MAX_DRIVER_MATCH_DISTANCE_KM) return;
         }
 
         notifiedCount++;
         notifyDriverOfRideRequest(driver.id, {
           ...payload,
+          pickupAddress: payload.pickupAddress ?? undefined,
+          dropAddress: payload.dropAddress ?? undefined,
+          fare: payload.fare ?? undefined,
+          distance: payload.distance ?? undefined,
+          vehicleType: payload.vehicleType ?? undefined,
           pickupLat: trip.pickupLat!,
           pickupLng: trip.pickupLng!,
           dropLat: trip.dropLat!,
           dropLng: trip.dropLng!,
-        }).catch(e => console.error('[Cron] Push err:', e));
+        }).catch((e: any) => console.error('[Cron] Push err:', e));
 
         if (driver.ws.readyState === WebSocket.OPEN) {
           driver.ws.send(JSON.stringify({ type: 'new_ride_request', payload }));
         }
-      }
+      });
       console.log(`[Cron] Dispatched scheduled ride ${trip.id} to ${notifiedCount} drivers.`);
     }
   } catch (err) {
