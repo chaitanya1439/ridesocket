@@ -1473,6 +1473,134 @@ app.post('/api/request-ride', async (req, res) => {
     });
 });
 
+
+// ─── REST: Schedule Ride ──────────────────────────────────────────────────────
+
+app.post('/api/schedule-ride', async (req, res) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader?.startsWith('Bearer ')) {
+    res.status(401).json({ error: 'Authorization header required' });
+    return;
+  }
+
+  let decoded: any;
+  try {
+    decoded = jwt.verify(authHeader.slice(7), JWT_SECRET, { ignoreExpiration: true });
+  } catch {
+    res.status(401).json({ error: 'Invalid or expired token' });
+    return;
+  }
+
+  const riderId = req.body.riderId ?? decoded.id ?? decoded.userId;
+  if (!riderId) {
+    res.status(400).json({ error: 'riderId is required' });
+    return;
+  }
+
+  const { scheduledTime, pickupLocation, dropLocation, fare, vehicleType, riderName, distance, pickupAddress, dropAddress } = req.body;
+  if (!scheduledTime || new Date(scheduledTime).getTime() <= Date.now()) {
+    res.status(400).json({ error: 'Valid future scheduledTime is required' });
+    return;
+  }
+
+  try {
+    const dbTrip = await prisma.trip.create({
+      data: {
+        riderId,
+        status: 'scheduled',
+        isScheduled: true,
+        scheduledTime: new Date(scheduledTime),
+        pickupLat: pickupLocation?.lat,
+        pickupLng: pickupLocation?.lng,
+        dropLat: dropLocation?.lat,
+        dropLng: dropLocation?.lng,
+        fare: fare ? parseFloat(String(fare)) : null,
+        vehicleType: vehicleType,
+        pickupAddress,
+        dropAddress,
+        distance: distance ? parseFloat(String(distance)) : null,
+      }
+    });
+
+    res.json({
+      success: true,
+      tripId: dbTrip.id,
+      message: `Ride scheduled successfully for ${new Date(scheduledTime).toLocaleString()}`
+    });
+  } catch (err) {
+    console.error('[API] Error scheduling ride:', err);
+    res.status(500).json({ error: 'Failed to schedule ride' });
+  }
+});
+
+// ─── Cron: Process Scheduled Rides ─────────────────────────────────────────────
+
+setInterval(async () => {
+  try {
+    // Find scheduled rides that are <= 15 mins away and still in 'scheduled' status
+    const fifteenMinsFromNow = new Date(Date.now() + 15 * 60000);
+    const trips = await prisma.trip.findMany({
+      where: {
+        status: 'scheduled',
+        isScheduled: true,
+        scheduledTime: { lte: fifteenMinsFromNow }
+      }
+    });
+
+    for (const trip of trips) {
+      // Mark as pending
+      await prisma.trip.update({
+        where: { id: trip.id },
+        data: { status: 'pending' }
+      });
+
+      // Prepare payload
+      const payload = {
+        riderId: trip.riderId,
+        pickupLocation: { lat: trip.pickupLat!, lng: trip.pickupLng! },
+        dropLocation: { lat: trip.dropLat!, lng: trip.dropLng! },
+        fare: trip.fare,
+        vehicleType: trip.vehicleType,
+        riderName: 'Rider', // Could fetch from User table
+        distance: trip.distance,
+        pickupAddress: trip.pickupAddress,
+        dropAddress: trip.dropAddress,
+      };
+
+      // Store in Redis for reconnecting drivers
+      await setPendingRequest(trip.riderId, { ...payload, timestamp: Date.now() });
+
+      // Notify nearby available drivers
+      let notifiedCount = 0;
+      for (const [_, driver] of Object.entries(connectedClients)) {
+        if (driver.role !== 'driver' || driver.status !== 'available') continue;
+        
+        if (driver.lastLocation && trip.pickupLat && trip.pickupLng) {
+          const dist = getDistanceInKm(trip.pickupLat, trip.pickupLng, driver.lastLocation.lat, driver.lastLocation.lng);
+          if (dist > MAX_DRIVER_MATCH_DISTANCE_KM) continue;
+        }
+
+        notifiedCount++;
+        notifyDriverOfRideRequest(driver.id, {
+          ...payload,
+          pickupLat: trip.pickupLat!,
+          pickupLng: trip.pickupLng!,
+          dropLat: trip.dropLat!,
+          dropLng: trip.dropLng!,
+        }).catch(e => console.error('[Cron] Push err:', e));
+
+        if (driver.ws.readyState === WebSocket.OPEN) {
+          driver.ws.send(JSON.stringify({ type: 'new_ride_request', payload }));
+        }
+      }
+      console.log(`[Cron] Dispatched scheduled ride ${trip.id} to ${notifiedCount} drivers.`);
+    }
+  } catch (err) {
+    console.error('[Cron] Error processing scheduled rides:', err);
+  }
+}, 60000); // run every 1 minute
+
+
 // ─── REST: Register Push Token ────────────────────────────────────────────────
 
 /**

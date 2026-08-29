@@ -67,9 +67,12 @@ model Trip {
   vehicleType         String?
   otp                 String?
   
-  // Status: "pending", "accepted", "started", "completed", "cancelled_by_rider", "cancelled_by_driver"
+  // Status: "pending", "accepted", "started", "completed", "cancelled_by_rider", "cancelled_by_driver", "scheduled"
   status              String    @default("pending")
   cancellationReason  String?
+  
+  isScheduled         Boolean   @default(false)
+  scheduledTime       DateTime?
   
   createdAt           DateTime  @default(now())
   updatedAt           DateTime  @updatedAt
