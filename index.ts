@@ -272,6 +272,40 @@ app.get('/api/driver/stats/:driverId', async (req, res) => {
     res.status(500).json({ error: 'Failed to fetch driver stats' });
   }
 });
+
+// --- Background Location Update API ---
+app.post('/api/location/update', async (req, res) => {
+  try {
+    const { driverId, location, riderId } = req.body;
+    if (!driverId || !location) {
+      return res.status(400).json({ error: 'driverId and location are required' });
+    }
+    
+    // Update Redis
+    await redis.geoadd('driver_locations', location.lng, location.lat, driverId);
+    
+    // Find target rider
+    let targetRiderId = riderId;
+    if (!targetRiderId) {
+      targetRiderId = await redis.get(`drivertrip:${driverId}`);
+    }
+    
+    // Forward to rider via WebSocket
+    if (targetRiderId) {
+      const targetRider = riders.get(targetRiderId);
+      if (targetRider?.ws.readyState === WebSocket.OPEN) {
+        targetRider.ws.send(JSON.stringify({
+          type: 'driver_location',
+          payload: { driverId, location }
+        }));
+      }
+    }
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to update location' });
+  }
+});
+
 const server = createServer(app);
 
 // 1. Bandwidth Efficiency: Enable per-message deflate compression.

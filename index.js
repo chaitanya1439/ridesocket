@@ -127,21 +127,24 @@ app.get('/api/rider/history/:userId', async (req, res) => {
     try {
         const { userId } = req.params;
         const trips = await prisma.trip.findMany({
-            where: { riderId: userId, status: { in: ['completed', 'cancelled'] } },
+            where: { riderId: userId, status: { in: ['completed', 'cancelled', 'scheduled'] } },
             orderBy: { createdAt: 'desc' },
             take: 20
         });
         // Map to the frontend expected format
-        const formatted = trips.map((t) => ({
-            id: t.id,
-            vehicle: t.vehicleType || "Bike",
-            status: t.status,
-            date: new Date(t.createdAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }),
-            time: new Date(t.createdAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }),
-            pickup: "Pickup Location", // Hardcoded fallback for now
-            drop: "Drop Location",
-            fare: t.fare || 0,
-        }));
+        const formatted = trips.map((t) => {
+            const displayDate = t.scheduledTime ? new Date(t.scheduledTime) : new Date(t.createdAt);
+            return {
+                id: t.id,
+                vehicle: t.vehicleType || "Bike",
+                status: t.status,
+                date: displayDate.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }),
+                time: displayDate.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }),
+                pickup: t.pickupAddress || "Pickup Location",
+                drop: t.dropAddress || "Drop Location",
+                fare: t.fare || 0,
+            };
+        });
         res.json(formatted);
     }
     catch (error) {
@@ -161,8 +164,8 @@ app.get('/api/driver/history/:driverId', async (req, res) => {
         const formatted = trips.map((t) => ({
             id: t.id,
             date: new Date(t.createdAt).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }),
-            pickup: "Pickup Location", // Hardcoded fallback for now, as address might not be in DB
-            drop: "Drop Location",
+            pickup: t.pickupAddress || "Pickup Location",
+            drop: t.dropAddress || "Drop Location",
             fare: t.fare || 0,
             status: t.status,
             timestamp: new Date(t.createdAt).getTime()
@@ -172,6 +175,23 @@ app.get('/api/driver/history/:driverId', async (req, res) => {
     catch (error) {
         console.error('[History API] Driver error:', error);
         res.status(500).json([]);
+    }
+});
+app.get('/api/rider/stats/:userId', async (req, res) => {
+    try {
+        const { userId } = req.params;
+        const [ridesCount, moneySaved, parcelsCount] = await Promise.all([
+            prisma.trip.count({ where: { riderId: userId, status: 'completed' } }),
+            prisma.trip.aggregate({ _sum: { fare: true }, where: { riderId: userId, status: 'completed' } }),
+            prisma.trip.count({ where: { riderId: userId, vehicleType: 'Parcel' } }) // Assuming Parcel is a vehicleType or similar
+        ]);
+        // Format money saved logic or apply 10% assumption if you want
+        const saved = moneySaved._sum.fare ? Number((moneySaved._sum.fare * 0.1).toFixed(2)) : 0;
+        res.json({ success: true, stats: { rides: ridesCount, saved, parcels: parcelsCount } });
+    }
+    catch (error) {
+        console.error('[Stats API] Error:', error);
+        res.status(500).json({ success: false, error: 'Failed to fetch stats' });
     }
 });
 app.get('/api/driver/stats/:driverId', async (req, res) => {
@@ -203,6 +223,36 @@ app.get('/api/driver/stats/:driverId', async (req, res) => {
     catch (error) {
         console.error('[Stats API] Driver error:', error);
         res.status(500).json({ error: 'Failed to fetch driver stats' });
+    }
+});
+// --- Background Location Update API ---
+app.post('/api/location/update', async (req, res) => {
+    try {
+        const { driverId, location, riderId } = req.body;
+        if (!driverId || !location) {
+            return res.status(400).json({ error: 'driverId and location are required' });
+        }
+        // Update Redis
+        await redis.geoadd('driver_locations', location.lng, location.lat, driverId);
+        // Find target rider
+        let targetRiderId = riderId;
+        if (!targetRiderId) {
+            targetRiderId = await redis.get(`drivertrip:${driverId}`);
+        }
+        // Forward to rider via WebSocket
+        if (targetRiderId) {
+            const targetRider = riders.get(targetRiderId);
+            if (targetRider?.ws.readyState === WebSocket.OPEN) {
+                targetRider.ws.send(JSON.stringify({
+                    type: 'driver_location',
+                    payload: { driverId, location }
+                }));
+            }
+        }
+        res.json({ success: true });
+    }
+    catch (error) {
+        res.status(500).json({ error: 'Failed to update location' });
     }
 });
 const server = createServer(app);
@@ -642,6 +692,7 @@ wss.on('connection', (ws, _request, decodedToken) => {
                     drop,
                     vehicle,
                     fare,
+                    type: 'tatkal_ride',
                 };
                 (async () => {
                     try {
@@ -718,6 +769,7 @@ wss.on('connection', (ws, _request, decodedToken) => {
                 let riderName = 'Rider';
                 let driverRating = 0;
                 let driverRideCount = 0;
+                let profileImageUrl = '';
                 try {
                     const [driverDoc, riderDoc, avgRating, rideCount] = await Promise.all([
                         prisma.user.findUnique({ where: { userId: client.id } }),
@@ -728,6 +780,7 @@ wss.on('connection', (ws, _request, decodedToken) => {
                     driverPhone = driverDoc?.phone || '';
                     driverName = driverDoc?.name || 'Driver';
                     vehicleNumber = driverDoc?.vehicleNumber || '';
+                    profileImageUrl = driverDoc?.profileImageUrl || '';
                     riderPhone = riderDoc?.phone || '';
                     riderName = riderDoc?.name || 'Rider';
                     driverRating = avgRating?._avg?.rating ? Number(avgRating._avg.rating.toFixed(1)) : 0;
@@ -752,27 +805,32 @@ wss.on('connection', (ws, _request, decodedToken) => {
                     driverRideCount,
                     riderName,
                     riderPhone,
+                    profileImageUrl,
                     ...data.payload,
                 };
-                (async () => {
-                    try {
-                        const dbTrip = await prisma.trip.create({
-                            data: {
-                                riderId: data.riderId,
-                                driverId: client.id,
-                                status: 'accepted',
-                                otp: otp,
-                                fare: data.payload?.fare ? parseFloat(String(data.payload?.fare)) : null,
-                                distance: data.payload?.distance ? parseFloat(String(data.payload?.distance)) : null,
-                                vehicleType: data.payload?.vehicleType ?? data.payload?.vehicle ?? null,
-                            }
-                        });
-                        tripRecord.id = dbTrip.id;
-                    }
-                    catch (e) {
-                        console.error('[Prisma] Error creating accepted trip:', e);
-                    }
-                })();
+                try {
+                    const dbTrip = await prisma.trip.create({
+                        data: {
+                            riderId: data.riderId,
+                            driverId: client.id,
+                            status: 'accepted',
+                            otp: otp,
+                            fare: data.payload?.fare ? parseFloat(String(data.payload?.fare)) : null,
+                            distance: data.payload?.distance ? parseFloat(String(data.payload?.distance)) : null,
+                            vehicleType: data.payload?.vehicleType ?? data.payload?.vehicle ?? null,
+                            pickupAddress: data.payload?.pickupAddress ? String(data.payload.pickupAddress) : null,
+                            pickupLat: data.payload?.pickupLat ? parseFloat(String(data.payload?.pickupLat)) : null,
+                            pickupLng: data.payload?.pickupLng ? parseFloat(String(data.payload?.pickupLng)) : null,
+                            dropAddress: data.payload?.dropAddress ? String(data.payload.dropAddress) : null,
+                            dropLat: data.payload?.dropLat ? parseFloat(String(data.payload?.dropLat)) : null,
+                            dropLng: data.payload?.dropLng ? parseFloat(String(data.payload?.dropLng)) : null,
+                        }
+                    });
+                    tripRecord.id = dbTrip.id;
+                }
+                catch (e) {
+                    console.error('[Prisma] Error creating accepted trip:', e);
+                }
                 await setActiveTrip(data.riderId, tripRecord);
                 await deletePendingRequest(data.riderId);
                 console.log(`[ride_accept] Driver ${client.id} accepted ride for rider ${data.riderId}`);
@@ -1116,6 +1174,57 @@ app.get('/api/vehicle-types', (_req, res) => {
  *
  * Auth: Bearer token in Authorization header
  */
+/**
+ * Background Location Update API
+ * Receives REST POST with location data from background drivers.
+ */
+app.post('/api/location', async (req, res) => {
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith('Bearer ')) {
+        res.status(401).json({ error: 'Authorization header required' });
+        return;
+    }
+    const token = authHeader.split(' ')[1];
+    if (!token) {
+        res.status(401).json({ error: 'Token missing' });
+        return;
+    }
+    try {
+        const decoded = jwt.verify(token, JWT_SECRET);
+        if (!decoded.id || !decoded.role || decoded.role !== 'driver') {
+            res.status(401).json({ error: 'Invalid driver token' });
+            return;
+        }
+        const { location, riderId } = req.body;
+        if (!location || typeof location.lat !== 'number' || typeof location.lng !== 'number') {
+            res.status(400).json({ error: 'Invalid location payload' });
+            return;
+        }
+        // Update Redis
+        await redis.geoadd('driver_locations', location.lng, location.lat, decoded.id);
+        // Broadcast to rider
+        let targetRiderId = riderId;
+        if (!targetRiderId) {
+            const rId = await redis.get(`drivertrip:${decoded.id}`);
+            if (rId)
+                targetRiderId = rId;
+        }
+        if (targetRiderId) {
+            const targetRider = riders.get(targetRiderId);
+            if (targetRider?.ws.readyState === WebSocket.OPEN) {
+                targetRider.ws.send(JSON.stringify({
+                    type: 'driver_location',
+                    payload: { driverId: decoded.id, location }
+                }));
+            }
+        }
+        res.json({ success: true });
+    }
+    catch (err) {
+        console.error('[API] Location Update error:', err);
+        res.status(401).json({ error: 'Unauthorized' });
+    }
+});
 app.post('/api/request-ride', async (req, res) => {
     // Authenticate the request
     const authHeader = req.headers.authorization;
@@ -1216,6 +1325,126 @@ app.post('/api/request-ride', async (req, res) => {
         res.status(500).json({ error: 'Failed to send some notifications' });
     });
 });
+// ─── REST: Schedule Ride ──────────────────────────────────────────────────────
+app.post('/api/schedule-ride', async (req, res) => {
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith('Bearer ')) {
+        res.status(401).json({ error: 'Authorization header required' });
+        return;
+    }
+    let decoded;
+    try {
+        decoded = jwt.verify(authHeader.slice(7), JWT_SECRET, { ignoreExpiration: true });
+    }
+    catch {
+        res.status(401).json({ error: 'Invalid or expired token' });
+        return;
+    }
+    const riderId = req.body.riderId ?? decoded.id ?? decoded.userId;
+    if (!riderId) {
+        res.status(400).json({ error: 'riderId is required' });
+        return;
+    }
+    const { scheduledTime, pickupLocation, dropLocation, fare, vehicleType, riderName, distance, pickupAddress, dropAddress } = req.body;
+    if (!scheduledTime || new Date(scheduledTime).getTime() <= Date.now()) {
+        res.status(400).json({ error: 'Valid future scheduledTime is required' });
+        return;
+    }
+    try {
+        const dbTrip = await prisma.trip.create({
+            data: {
+                riderId,
+                status: 'scheduled',
+                isScheduled: true,
+                scheduledTime: new Date(scheduledTime),
+                pickupLat: pickupLocation?.lat,
+                pickupLng: pickupLocation?.lng,
+                dropLat: dropLocation?.lat,
+                dropLng: dropLocation?.lng,
+                fare: fare ? parseFloat(String(fare)) : null,
+                vehicleType: vehicleType,
+                pickupAddress,
+                dropAddress,
+                distance: distance ? parseFloat(String(distance)) : null,
+            }
+        });
+        res.json({
+            success: true,
+            tripId: dbTrip.id,
+            message: `Ride scheduled successfully for ${new Date(scheduledTime).toLocaleString()}`
+        });
+    }
+    catch (err) {
+        console.error('[API] Error scheduling ride:', err);
+        res.status(500).json({ error: 'Failed to schedule ride' });
+    }
+});
+// ─── Cron: Process Scheduled Rides ─────────────────────────────────────────────
+setInterval(async () => {
+    try {
+        // Find scheduled rides that are <= 15 mins away and still in 'scheduled' status
+        const fifteenMinsFromNow = new Date(Date.now() + 15 * 60000);
+        const trips = await prisma.trip.findMany({
+            where: {
+                status: 'scheduled',
+                isScheduled: true,
+                scheduledTime: { lte: fifteenMinsFromNow }
+            }
+        });
+        for (const trip of trips) {
+            // Mark as pending
+            await prisma.trip.update({
+                where: { id: trip.id },
+                data: { status: 'pending' }
+            });
+            // Prepare payload
+            const payload = {
+                riderId: trip.riderId,
+                pickupLocation: { lat: trip.pickupLat, lng: trip.pickupLng },
+                dropLocation: { lat: trip.dropLat, lng: trip.dropLng },
+                fare: trip.fare,
+                vehicleType: trip.vehicleType,
+                riderName: 'Rider', // Could fetch from User table
+                distance: trip.distance,
+                pickupAddress: trip.pickupAddress,
+                dropAddress: trip.dropAddress,
+            };
+            // Store in Redis for reconnecting drivers
+            await setPendingRequest(trip.riderId, { ...payload, timestamp: Date.now() });
+            // Notify nearby available drivers
+            let notifiedCount = 0;
+            drivers.forEach((driver) => {
+                if (driver.status !== 'available')
+                    return;
+                if (driver.lastLocation && trip.pickupLat && trip.pickupLng) {
+                    const dist = getDistanceInKm(trip.pickupLat, trip.pickupLng, driver.lastLocation.lat, driver.lastLocation.lng);
+                    if (dist > MAX_DRIVER_MATCH_DISTANCE_KM)
+                        return;
+                }
+                notifiedCount++;
+                notifyDriverOfRideRequest(driver.id, {
+                    ...payload,
+                    pickupAddress: payload.pickupAddress ?? undefined,
+                    dropAddress: payload.dropAddress ?? undefined,
+                    fare: payload.fare ?? undefined,
+                    distance: payload.distance ?? undefined,
+                    vehicleType: payload.vehicleType ?? undefined,
+                    pickupLat: trip.pickupLat,
+                    pickupLng: trip.pickupLng,
+                    dropLat: trip.dropLat,
+                    dropLng: trip.dropLng,
+                }).catch((e) => console.error('[Cron] Push err:', e));
+                if (driver.ws.readyState === WebSocket.OPEN) {
+                    driver.ws.send(JSON.stringify({ type: 'new_ride_request', payload }));
+                }
+            });
+            console.log(`[Cron] Dispatched scheduled ride ${trip.id} to ${notifiedCount} drivers.`);
+        }
+    }
+    catch (err) {
+        console.error('[Cron] Error processing scheduled rides:', err);
+    }
+}, 60000); // run every 1 minute
 // ─── REST: Register Push Token ────────────────────────────────────────────────
 /**
  * POST /api/register-push-token
@@ -1306,10 +1535,11 @@ app.post('/auth/login', async (req, res) => {
             where: { userId: uid }
         });
         let isNewUser = false;
+        let userData = existingUser;
         if (!existingUser) {
             isNewUser = true;
             console.log(`[Auth Login] User not found in DB. Creating new record for ${uid}`);
-            await prisma.user.create({
+            userData = await prisma.user.create({
                 data: {
                     userId: uid,
                     phone: phone,
@@ -1319,10 +1549,14 @@ app.post('/auth/login', async (req, res) => {
         }
         else {
             console.log(`[Auth Login] User ${uid} found in DB.`);
+            // If the user hasn't completed their profile yet, consider them new
+            if (!existingUser.name) {
+                isNewUser = true;
+            }
         }
         // Issue internal JWT for WebSocket Authentication
         const internalToken = jwt.sign({ id: uid, role }, JWT_SECRET, { expiresIn: '7d' });
-        res.json({ token: internalToken, id: uid, role, isNewUser });
+        res.json({ token: internalToken, id: uid, role, isNewUser, user: userData });
     }
     catch (dbErr) {
         console.error('[Auth Login] DB Error:', dbErr);
@@ -1343,18 +1577,34 @@ app.post('/auth/update-profile', async (req, res) => {
     try {
         const decoded = jwt.verify(token, JWT_SECRET);
         const uid = decoded.id || decoded.userId;
-        const { name, email, gender } = req.body;
-        if (!name || !email || !gender) {
-            res.status(400).json({ error: 'Name, email, and gender are required' });
-            return;
-        }
-        await prisma.user.update({
+        const { name, email, gender, dob, languages, vehicleType, vehicleNumber, subscriptionStatus, subscriptionExpiry, subscriptionExpiryDate, subscriptionPlanId, subscriptionEarningLimit } = req.body;
+        const updateData = {};
+        if (name !== undefined)
+            updateData.name = name;
+        if (email !== undefined)
+            updateData.email = email;
+        if (gender !== undefined)
+            updateData.gender = gender;
+        if (dob !== undefined)
+            updateData.dob = dob;
+        if (languages !== undefined)
+            updateData.languages = languages;
+        if (vehicleType !== undefined)
+            updateData.vehicleType = vehicleType;
+        if (vehicleNumber !== undefined)
+            updateData.vehicleNumber = vehicleNumber;
+        if (subscriptionStatus !== undefined)
+            updateData.subscriptionStatus = subscriptionStatus;
+        const expiry = subscriptionExpiry || subscriptionExpiryDate;
+        if (expiry !== undefined)
+            updateData.subscriptionExpiry = new Date(expiry);
+        if (subscriptionPlanId !== undefined)
+            updateData.subscriptionPlanId = subscriptionPlanId;
+        if (subscriptionEarningLimit !== undefined)
+            updateData.subscriptionEarningLimit = subscriptionEarningLimit;
+        const updatedUser = await prisma.user.update({
             where: { userId: uid },
-            data: {
-                name: name,
-                email: email,
-                gender: gender
-            }
+            data: updateData
         });
         res.json({
             message: 'Profile updated successfully',
