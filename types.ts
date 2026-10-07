@@ -31,6 +31,8 @@ export interface ClientInfo {
   vehicleType?: string;
   /** Unique device identifier for session exclusivity */
   deviceId?: string;
+  /** Driver-only: gender for She-Bike matching */
+  gender?: string;
 }
 
 // ─── Active trip record ───────────────────────────────────────────────────────
@@ -199,6 +201,16 @@ export interface SubmitFeedbackMessage {
   comments?: string;
 }
 
+export interface TatkalConsentAcceptMessage {
+  type: 'tatkal_consent_accept';
+  payload?: any;
+}
+
+export interface TatkalConsentRejectMessage {
+  type: 'tatkal_consent_reject';
+  payload?: any;
+}
+
 export type InboundMessage =
   | AuthMessage
   | DriverStatusMessage
@@ -214,6 +226,8 @@ export type InboundMessage =
   | UnregisterPushTokenMessage
   | PingMessage
   | TatkalRideStartMessage
+  | TatkalConsentAcceptMessage
+  | TatkalConsentRejectMessage
   | SubmitFeedbackMessage;
 
 // ─── WebSocket message payloads (server → client) ────────────────────────────

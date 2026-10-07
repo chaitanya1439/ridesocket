@@ -595,10 +595,15 @@ wss.on('connection', (ws: WebSocket, _request: unknown, decodedToken: DecodedTok
           // Background: DB subscription check + trip sync (non-blocking)
           (async () => {
             try {
-              // DB subscription check (fire-and-forget, don't block auth)
+              // DB subscription & gender check (fire-and-forget, don't block auth)
               if (clientId !== 'ffe12862-83d8-468b-8c56-1481cf18b818') {
                 prisma.user.findUnique({
                   where: { userId: clientId }
+                }).then((user: any) => {
+                  if (user && user.gender) {
+                    newClient.gender = user.gender.toLowerCase();
+                    console.log(`[Auth] Set gender ${newClient.gender} for driver ${newClient.id}`);
+                  }
                 }).catch((e: any) => console.error(`[Auth] DB lookup failed for ${clientId}:`, e));
               }
 
@@ -721,6 +726,14 @@ wss.on('connection', (ws: WebSocket, _request: unknown, decodedToken: DecodedTok
             return;
           }
 
+          // Gender validation for She-Bike
+          if (reqType.includes('she-bike')) {
+            if (driver.gender !== 'female') {
+              console.log(`[Dispatch] Skipped Driver ${driver.id} - she-bike requested but driver gender is ${driver.gender}`);
+              return;
+            }
+          }
+
           // Geospatial filtering: skip drivers outside the match radius
           if (pickupLoc) {
             if (!driver.lastLocation) {
@@ -793,40 +806,57 @@ wss.on('connection', (ws: WebSocket, _request: unknown, decodedToken: DecodedTok
         break;
       }
 
-      // ── Tatkal Ride Start (QR Scan) ───────────────────────────────────────
+      
+      // ── Tatkal Ride Start (QR Scan) -> Ask Rider Consent ──
       case 'tatkal_ride_start': {
         if (!client || client.role !== 'driver') break;
-
         const { bookingId, riderId, driverName, code, pickup, drop, vehicle, fare } = data as any;
         if (!riderId) break;
 
-        client.status = 'busy';
+        // Notify Driver that we are waiting for rider consent
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: 'tatkal_consent_pending' }));
+        }
+
+        // Send consent request to Rider
+        const riderToNotify = riders.get(riderId);
+        if (riderToNotify?.ws.readyState === WebSocket.OPEN) {
+          riderToNotify.ws.send(JSON.stringify({
+            type: 'tatkal_consent_request',
+            payload: {
+              bookingId, riderId, driverId: client.id, driverName: driverName || client.id,
+              code, pickup, drop, vehicle, fare, type: 'tatkal_ride'
+            }
+          }));
+        }
+        break;
+      }
+
+      // ── Rider Accepts Tatkal Consent ──
+      case 'tatkal_consent_accept': {
+        if (!client || client.role !== 'rider') break;
+        const payload = data.payload;
+        if (!payload || !payload.driverId) break;
+        
+        const driverClient = drivers.get(payload.driverId);
+        if (driverClient) driverClient.status = 'busy';
 
         const tripRecord: TripRecord = {
-          riderId,
-          driverId: client.id,
+          ...payload,
           status: 'accepted',
-          otp: code || Math.floor(1000 + Math.random() * 9000).toString(),
-          driverLat: client.lastLocation?.lat,
-          driverLng: client.lastLocation?.lng,
-          driverName: driverName || client.id,
-          pickup,
-          drop,
-          vehicle,
-          fare,
-          type: 'tatkal_ride',
+          otp: payload.code || Math.floor(1000 + Math.random() * 9000).toString(),
         };
 
         (async () => {
           try {
             const dbTrip = await prisma.trip.create({
               data: {
-                riderId,
-                driverId: client.id,
+                riderId: payload.riderId,
+                driverId: payload.driverId,
                 status: 'accepted',
                 otp: tripRecord.otp ?? null,
-                vehicleType: vehicle ?? null,
-                fare: fare ? parseFloat(String(fare)) : null,
+                vehicleType: payload.vehicle ?? null,
+                fare: payload.fare ? parseFloat(String(payload.fare)) : null,
               }
             });
             tripRecord.id = dbTrip.id;
@@ -835,345 +865,38 @@ wss.on('connection', (ws: WebSocket, _request: unknown, decodedToken: DecodedTok
           }
         })();
 
-        await setActiveTrip(riderId, tripRecord);
-        await deletePendingRequest(riderId);
+        await setActiveTrip(payload.riderId, tripRecord);
+        await deletePendingRequest(payload.riderId);
 
-        console.log(`[tatkal_ride_start] Driver ${client.id} started tatkal ride for rider ${riderId}`);
+        console.log(`[tatkal_ride_started] Driver ${payload.driverId} started tatkal ride for rider ${payload.riderId}`);
 
         // Notify Rider
-        const riderToNotify = riders.get(riderId);
-        let riderFound = false;
-        if (riderToNotify?.ws.readyState === WebSocket.OPEN) {
-          riderToNotify.ws.send(JSON.stringify({ type: 'tatkal_ride_started', payload: tripRecord }));
-          riderFound = true;
-        } else {
-          riders.forEach((r, rId) => {
-            if (!riderFound && r.ws.readyState === WebSocket.OPEN && rId === riderId) {
-              r.ws.send(JSON.stringify({ type: 'tatkal_ride_started', payload: tripRecord }));
-              riderFound = true;
-            }
-          });
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: 'tatkal_ride_started', payload: tripRecord }));
         }
 
         // Notify Driver
-        if (client.ws.readyState === WebSocket.OPEN) {
-          client.ws.send(JSON.stringify({ type: 'tatkal_ride_confirmed', payload: tripRecord }));
+        if (driverClient?.ws.readyState === WebSocket.OPEN) {
+          driverClient.ws.send(JSON.stringify({ type: 'tatkal_ride_started', payload: tripRecord }));
+          driverClient.ws.send(JSON.stringify({ type: 'sync_state', payload: tripRecord }));
         }
-
-        // Push Notification to rider
-        notifyRiderOfAcceptance(riderId, { driverId: client.id })
-          .catch((err) => console.error(`[Push] Error notifying rider ${riderId} of tatkal ride:`, err));
-
         break;
       }
 
-      // ── Ride accept ────────────────────────────────────────────────────────
-      case 'ride_accept': {
-        if (!client || client.role !== 'driver') break;
-
-        // ── Atomic lock: prevent multiple drivers accepting the same ride ──
-        // SET NX returns 'OK' only for the FIRST caller; subsequent ones get null.
-        const lockKey = `lock:ride_accept:${data.riderId}`;
-        const lockAcquired = await redis.set(lockKey, client.id, 'NX', 'EX', 30);
-
-        if (!lockAcquired) {
-          console.log(`[ride_accept] BLOCKED — Ride for ${data.riderId} already accepted by another driver. Driver ${client.id} was too late.`);
-          client.status = 'available'; // reset back to available
-          ws.send(JSON.stringify({
-            type: 'ride_request_cancelled',
-            payload: { riderId: data.riderId, reason: 'accepted_by_another' },
-          }));
-          break;
-        }
-
-        client.status = 'busy';
-
-        // Generate a STATIC 4-digit OTP for the ride based on riderId
-        // This ensures the user always gets the same OTP and same QR scanner code
-        const hash = crypto.createHash('sha256').update(data.riderId).digest('hex');
-        const otp = (parseInt(hash.substring(0, 8), 16) % 9000 + 1000).toString();
+      // ── Rider Rejects Tatkal Consent ──
+      case 'tatkal_consent_reject': {
+        if (!client || client.role !== 'rider') break;
+        const driverId = data.payload?.driverId;
+        if (!driverId) break;
         
-        // Fetch real details from DB so they can call each other
-        let driverPhone: string = '';
-        let driverName: string = 'Driver';
-        let vehicleNumber: string = '';
-        let riderPhone: string = '';
-        let riderName: string = 'Rider';
-        let driverRating: number = 0;
-        let driverRideCount: number = 0;
-        let profileImageUrl: string = '';
-        
-        try {
-          const [driverDoc, riderDoc, avgRating, rideCount] = await Promise.all([
-            prisma.user.findUnique({ where: { userId: client.id } }),
-            prisma.user.findUnique({ where: { userId: data.riderId } }),
-            prisma.feedback.aggregate({ _avg: { rating: true }, where: { toUserId: client.id } }),
-            prisma.trip.count({ where: { driverId: client.id, status: 'completed' } })
-          ]);
-          driverPhone = driverDoc?.phone || '';
-          driverName = driverDoc?.name || 'Driver';
-          vehicleNumber = driverDoc?.vehicleNumber || ''; 
-          profileImageUrl = driverDoc?.profileImageUrl || '';
-          riderPhone = riderDoc?.phone || '';
-          riderName = riderDoc?.name || 'Rider';
-          driverRating = avgRating?._avg?.rating ? Number(avgRating._avg.rating.toFixed(1)) : 0;
-          driverRideCount = rideCount || 0;
-        } catch(e) {
-          console.error('[Prisma] Error fetching user details for ride_accept:', e);
-          driverName = 'Driver';
-          riderName = 'Rider';
-        }
-
-        const tripRecord: TripRecord = {
-          riderId: data.riderId,
-          driverId: client.id,
-          status: 'accepted',
-          otp,
-          driverLat: client.lastLocation?.lat,
-          driverLng: client.lastLocation?.lng,
-          driverName,
-          driverPhone,
-          vehicleNumber,
-          driverRating,
-          driverRideCount,
-          riderName,
-          riderPhone,
-          profileImageUrl,
-          ...data.payload,
-        };
-
-        try {
-          const dbTrip = await prisma.trip.create({
-            data: {
-              riderId: data.riderId,
-              driverId: client.id,
-              status: 'accepted',
-              otp: otp,
-              fare: data.payload?.fare ? parseFloat(String(data.payload?.fare)) : null,
-              distance: data.payload?.distance ? parseFloat(String(data.payload?.distance)) : null,
-              vehicleType: data.payload?.vehicleType ?? data.payload?.vehicle ?? null,
-              pickupAddress: data.payload?.pickupAddress ? String(data.payload.pickupAddress) : null,
-              pickupLat: data.payload?.pickupLat ? parseFloat(String(data.payload?.pickupLat)) : null,
-              pickupLng: data.payload?.pickupLng ? parseFloat(String(data.payload?.pickupLng)) : null,
-              dropAddress: data.payload?.dropAddress ? String(data.payload.dropAddress) : null,
-              dropLat: data.payload?.dropLat ? parseFloat(String(data.payload?.dropLat)) : null,
-              dropLng: data.payload?.dropLng ? parseFloat(String(data.payload?.dropLng)) : null,
-            }
-          });
-          tripRecord.id = dbTrip.id;
-        } catch (e) {
-          console.error('[Prisma] Error creating accepted trip:', e);
-        }
-
-        await setActiveTrip(data.riderId, tripRecord);
-        await deletePendingRequest(data.riderId);
-
-        console.log(`[ride_accept] Driver ${client.id} accepted ride for rider ${data.riderId}`);
-        console.log(`[ride_accept] Rider WS lookup: riders.has(${data.riderId}) = ${riders.has(data.riderId)}`);
-
-        const riderToNotify = riders.get(data.riderId);
-        if (riderToNotify?.ws.readyState === WebSocket.OPEN) {
-          console.log(`[ride_accept] Sending ride_accepted to rider ${data.riderId} via WebSocket`);
-          riderToNotify.ws.send(JSON.stringify({ type: 'ride_accepted', payload: tripRecord }));
-        } else {
-          console.log(`[ride_accept] Rider ${data.riderId} WebSocket not available (readyState: ${riderToNotify?.ws.readyState ?? 'NOT_FOUND'})`);
-          // Try to find rider by iterating all riders (in case riderId doesn't match Map key)
-          let found = false;
-          riders.forEach(async (rider, rId) => {
-            if (!found && rider.ws.readyState === WebSocket.OPEN) {
-              // Check if this rider has a pending request matching this riderId
-              const pendingForRider = (await getPendingRequest(rId));
-              if (pendingForRider && (pendingForRider as any).riderId === data.riderId) {
-                console.log(`[ride_accept] Found rider ${rId} with matching pending request`);
-                rider.ws.send(JSON.stringify({ type: 'ride_accepted', payload: tripRecord }));
-                found = true;
-              }
-            }
-          });
-        }
-
-        // Push notification to rider: "Your ride has been accepted!"
-        notifyRiderOfAcceptance(data.riderId, {
-          driverId: client.id,
-        }).catch((err) => console.error(`[Push] Error notifying rider ${data.riderId}:`, err));
-
-        // Notify OTHER drivers to remove this request (since it's been accepted)
-        drivers.forEach((otherDriver) => {
-          if (otherDriver.id !== client.id && otherDriver.ws.readyState === WebSocket.OPEN) {
-            otherDriver.ws.send(JSON.stringify({
-              type: 'ride_request_cancelled',
-              payload: { riderId: data.riderId, reason: 'accepted_by_another' },
-            }));
-          }
-        });
-
-        // Send a success confirmation back to the driver who accepted it,
-        // so they get the rider's phone number and the exact static OTP generated.
-        if (ws.readyState === WebSocket.OPEN) {
-          ws.send(JSON.stringify({
-            type: 'sync_state',
-            payload: tripRecord
-          }));
-        }
-
-        break;
-      }
-
-      // ── Ride reject ─────────────────────────────────────────────────────────
-      case 'ride_reject': {
-        if (!client || client.role !== 'driver') break;
-
-        console.log(`Driver ${client.id} rejected ride from rider ${data.riderId}`);
-
-        // Notify the rider that this specific driver rejected
-        const riderForReject = riders.get(data.riderId);
-        if (riderForReject?.ws.readyState === WebSocket.OPEN) {
-          riderForReject.ws.send(JSON.stringify({
-            type: 'ride_rejected',
-            payload: { driverId: client.id },
-          }));
+        const driverClient = drivers.get(driverId);
+        if (driverClient?.ws.readyState === WebSocket.OPEN) {
+          driverClient.ws.send(JSON.stringify({ type: 'tatkal_consent_rejected' }));
         }
         break;
       }
 
-      // ── Ride cancel ──────────────────────────────────────────────────────────
-      case 'ride_cancel': {
-        if (!client) break;
-        
-        const targetRiderId = client.role === 'rider' ? client.id : (data.riderId ?? client.id);
-        console.log(`Ride cancelled by ${client.role} ${client.id} for rider ${targetRiderId}`);
-
-        const trip = (await getActiveTrip(targetRiderId));
-        if (trip) {
-          trip.status = 'cancelled';
-          if (trip.id) {
-            prisma.trip.update({
-              where: { id: trip.id },
-              data: { status: 'cancelled_by_' + client.role }
-            }).catch((e: any) => console.error('[Prisma] Error cancelling trip:', e));
-          }
-          
-          // Notify the other party
-          if (client.role === 'rider') {
-            const driver = drivers.get(trip.driverId);
-            if (driver && driver.ws.readyState === WebSocket.OPEN) {
-              driver.ws.send(JSON.stringify({
-                type: 'trip_status_changed',
-                payload: { driverId: trip.driverId, status: 'cancelled' }
-              }));
-            }
-            if (driver) driver.status = 'available';
-          } else {
-            const rider = riders.get(targetRiderId);
-            if (rider && rider.ws.readyState === WebSocket.OPEN) {
-              rider.ws.send(JSON.stringify({
-                type: 'trip_status_changed',
-                payload: { driverId: trip.driverId, status: 'cancelled' }
-              }));
-            }
-            client.status = 'available';
-          }
-          await deleteActiveTrip(targetRiderId);
-          await redis.del(`lock:ride_accept:${targetRiderId}`);
-        } else {
-          // If the ride was still pending
-          if ((!!(await getPendingRequest(targetRiderId)))) {
-            await deletePendingRequest(targetRiderId);
-            // Broadcast cancellation to all drivers
-            drivers.forEach((d) => {
-              if (d.ws.readyState === WebSocket.OPEN) {
-                d.ws.send(JSON.stringify({
-                  type: 'ride_request_cancelled',
-                  payload: { riderId: targetRiderId, reason: 'cancelled_by_rider' }
-                }));
-              }
-            });
-          }
-        }
-        break;
-      }
-      case 'location_update': {
-        if (!client || client.role !== 'driver') break;
-
-        if (data.location) {
-          client.lastLocation = data.location;
-          await redis.geoadd('driver_locations', data.location.lng, data.location.lat, client.id);
-        }
-
-        // Derive the paired rider from server memory (never trust client-provided riderId blindly)
-        let targetRiderId: string | undefined = data.riderId;
-        if (!targetRiderId) {
-          // O(1) lookup using reverse index instead of scanning all trips
-          const rId = await redis.get(`drivertrip:${client.id}`);
-          if (rId) targetRiderId = rId;
-        }
-
-        if (targetRiderId) {
-          const targetRider = riders.get(targetRiderId);
-          if (targetRider?.ws.readyState === WebSocket.OPEN) {
-            targetRider.ws.send(
-              JSON.stringify({
-                type: 'driver_location',
-                payload: { driverId: client.id, location: data.location },
-              }),
-            );
-          }
-        }
-        break;
-      }
-
-      // ── Trip status update ─────────────────────────────────────────────────
-      case 'trip_status_update': {
-        if (!client || client.role !== 'driver') break;
-
-        console.log(`Trip status update from ${client.id} for ${data.riderId}: ${data.status}`);
-
-        const trip = (await getActiveTrip(data.riderId));
-        if (trip) {
-          trip.status = data.status as TripStatus;
-          if (trip.id) {
-            prisma.trip.update({
-              where: { id: trip.id },
-              data: { status: data.status }
-            }).catch((e: any) => console.error('[Prisma] Error updating trip status:', e));
-          }
-        }
-
-        const targetRider = riders.get(data.riderId);
-        if (targetRider?.ws.readyState === WebSocket.OPEN) {
-          targetRider.ws.send(
-            JSON.stringify({
-              type: 'trip_status_changed',
-              payload: { driverId: client.id, status: data.status },
-            }),
-          );
-        }
-
-        if (data.status === 'completed' || data.status === 'cancelled') {
-          client.status = 'available';
-          await deleteActiveTrip(data.riderId);
-          await redis.del(`lock:ride_accept:${data.riderId}`);
-        }
-
-        // Push notification to rider about trip status changes
-        const statusMessages: Record<string, string> = {
-          arrived: 'Your driver has arrived at the pickup point!',
-          in_progress: 'Your ride has started. Enjoy the journey!',
-          completed: 'Ride completed! Thank you for riding with us.',
-          cancelled: 'Your ride has been cancelled.',
-        };
-        const msg = statusMessages[data.status];
-        if (msg) {
-          notifyTripStatusChange(data.riderId, {
-            status: data.status,
-            message: msg,
-          }).catch((err) => console.error(`[Push] Error notifying trip status:`, err));
-        }
-        break;
-      }
-
-      // ── Chat message ───────────────────────────────────────────────────────
-      case 'CHAT_MESSAGE':
+      // ── Chat Message ──
       case 'chat_message': {
         if (!client) break;
 
