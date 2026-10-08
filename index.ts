@@ -806,7 +806,70 @@ wss.on('connection', (ws: WebSocket, _request: unknown, decodedToken: DecodedTok
         break;
       }
 
-      
+      // ── Ride accept ────────────────────────────────────────────────────────
+      case 'ride_accept': {
+        if (!client || client.role !== 'driver') break;
+        const riderId = data.riderId;
+        if (!riderId) break;
+
+        const riderClient = riders.get(riderId);
+        if (!riderClient) {
+          console.log(`[Dispatch] Rider ${riderId} not found or disconnected when Driver ${client.id} accepted.`);
+        }
+
+        client.status = 'busy';
+
+        const tripRecord: TripRecord = {
+          driverId: client.id,
+          riderId: riderId,
+          status: 'accepted',
+          otp: data.payload?.otp ?? Math.floor(1000 + Math.random() * 9000).toString(),
+        };
+        
+        if (data.payload?.pickupLocation !== undefined) tripRecord.pickupLocation = data.payload.pickupLocation;
+        if (data.payload?.dropLocation !== undefined) tripRecord.dropLocation = data.payload.dropLocation;
+        if (data.payload?.fare !== undefined) tripRecord.fare = data.payload.fare;
+        const vType = data.payload?.vehicleType ?? client.vehicleType;
+        if (vType !== undefined) {
+          tripRecord.vehicleType = vType;
+        }
+
+        // Notify Rider
+        if (riderClient?.ws.readyState === WebSocket.OPEN) {
+          riderClient.ws.send(JSON.stringify({ type: 'ride_accepted', payload: tripRecord }));
+        }
+
+        // Broadcast to all drivers to cancel the request
+        drivers.forEach((driver) => {
+          if (driver.id !== client.id && driver.ws.readyState === WebSocket.OPEN) {
+            driver.ws.send(JSON.stringify({ type: 'ride_request_cancelled', reason: 'accepted_by_another' }));
+          }
+        });
+
+        (async () => {
+          try {
+            const dbTrip = await prisma.trip.create({
+              data: {
+                riderId: riderId,
+                driverId: client.id,
+                status: 'accepted',
+                otp: tripRecord.otp ?? null,
+                vehicleType: tripRecord.vehicleType ?? null,
+                fare: tripRecord.fare ? parseFloat(String(tripRecord.fare)) : null,
+              }
+            });
+            tripRecord.id = dbTrip.id;
+          } catch (e) {
+            console.error('[Prisma] Error creating trip on ride_accept:', e);
+          }
+        })();
+
+        await setActiveTrip(riderId, tripRecord);
+        await deletePendingRequest(riderId);
+        console.log(`[Dispatch] Driver ${client.id} accepted ride from rider ${riderId}`);
+        break;
+      }
+
       // ── Tatkal Ride Start (QR Scan) -> Ask Rider Consent ──
       case 'tatkal_ride_start': {
         if (!client || client.role !== 'driver') break;
