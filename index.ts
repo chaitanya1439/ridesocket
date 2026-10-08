@@ -819,11 +819,25 @@ wss.on('connection', (ws: WebSocket, _request: unknown, decodedToken: DecodedTok
 
         client.status = 'busy';
 
+        let dbDriver;
+        try {
+          dbDriver = await prisma.user.findUnique({ where: { userId: client.id } });
+        } catch (e) {
+          console.error('[Prisma] Error fetching driver details:', e);
+        }
+
         const tripRecord: TripRecord = {
           driverId: client.id,
           riderId: riderId,
           status: 'accepted',
           otp: data.payload?.otp ?? Math.floor(1000 + Math.random() * 9000).toString(),
+          driverName: dbDriver?.name || "Your Driver",
+          driverPhone: dbDriver?.phone || "",
+          driverRating: 4.8,
+          plateNumber: dbDriver?.vehicleNumber || "TG 09 A 1234",
+          profileImageUrl: dbDriver?.profileImageUrl || "https://i.pravatar.cc/150?u=" + client.id,
+          driverLat: client.lastLocation?.lat,
+          driverLng: client.lastLocation?.lng,
         };
         
         if (data.payload?.pickupLocation !== undefined) tripRecord.pickupLocation = data.payload.pickupLocation;
