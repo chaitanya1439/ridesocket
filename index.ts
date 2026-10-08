@@ -834,7 +834,7 @@ wss.on('connection', (ws: WebSocket, _request: unknown, decodedToken: DecodedTok
           driverName: dbDriver?.name || "Your Driver",
           driverPhone: dbDriver?.phone || "",
           driverRating: 4.8,
-          plateNumber: dbDriver?.vehicleNumber || "TG 09 A 1234",
+          vehicleNumber: dbDriver?.vehicleNumber || "TG 09 A 1234",
           profileImageUrl: dbDriver?.profileImageUrl || "https://i.pravatar.cc/150?u=" + client.id,
           driverLat: client.lastLocation?.lat,
           driverLng: client.lastLocation?.lng,
