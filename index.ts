@@ -1010,6 +1010,65 @@ wss.on('connection', (ws: WebSocket, _request: unknown, decodedToken: DecodedTok
         break;
       }
 
+      // ── Trip Status Update ────────────────────────────────────────────────
+      case 'trip_status_update': {
+        if (!client) break;
+        const targetRiderId = data.riderId;
+        if (!targetRiderId) break;
+
+        const status = data.status as TripStatus;
+        (async () => {
+          // Update active trip in Redis
+          const activeTrip = await getActiveTrip(targetRiderId);
+          if (activeTrip) {
+            activeTrip.status = status;
+            await setActiveTrip(targetRiderId, activeTrip);
+          }
+          
+          if (status === 'completed') {
+            await deleteActiveTrip(targetRiderId);
+          }
+
+          // Relay to rider
+          const riderClient = riders.get(targetRiderId);
+          if (riderClient?.ws.readyState === WebSocket.OPEN) {
+            riderClient.ws.send(JSON.stringify({ type: 'trip_status_update', payload: data }));
+          }
+        })();
+        break;
+      }
+
+      // ── Ride Cancel ───────────────────────────────────────────────────────
+      case 'ride_cancel': {
+        if (!client) break;
+        const targetRiderId = data.riderId;
+        if (!targetRiderId) break;
+
+        (async () => {
+          const activeTrip = await getActiveTrip(targetRiderId);
+          if (activeTrip) {
+            activeTrip.status = 'cancelled';
+            
+            // Relay to driver if assigned
+            if (activeTrip.driverId) {
+              const driverClient = drivers.get(activeTrip.driverId);
+              if (driverClient?.ws.readyState === WebSocket.OPEN) {
+                driverClient.ws.send(JSON.stringify({ type: 'ride_cancelled', reason: 'cancelled_by_rider' }));
+              }
+            }
+            await deleteActiveTrip(targetRiderId);
+          } else {
+            // It might be a pending request. Broadcast cancellation to drivers.
+            for (const driverClient of drivers.values()) {
+              if (driverClient.ws.readyState === WebSocket.OPEN) {
+                driverClient.ws.send(JSON.stringify({ type: 'ride_request_cancelled', riderId: targetRiderId }));
+              }
+            }
+          }
+        })();
+        break;
+      }
+
       // ── Feedback ──────────────────────────────────────────────────────────
       case 'submit_feedback': {
         if (!client) break;
